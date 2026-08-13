@@ -64,7 +64,7 @@ Privacy policy: [barburas.com/privacy-policy](https://barburas.com/privacy-polic
 
 ```bash
 git clone https://github.com/andreibarburas/vinci-android.git
-cd android-apps/vinci
+cd vinci-android
 ./gradlew assembleDebug
 ```
 
