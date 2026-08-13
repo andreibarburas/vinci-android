@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [1.7.0]
+### New
+- Contact photos can now be cropped before saving; pick an image and you'll get a square crop with a circular guide overlay, so you can see exactly how it'll look once displayed as a circle (matching how Nextcloud shows avatars).
+
+### Fixed
+
+- Fixed a "Permission Denial: requires android.permission.WRITE_CONTACTS" error when saving a contact. Existing users who set up Vinci before contact editing existed were never actually prompted for this permission; it's now requested the first time you try to save a contact edit, rather than only during initial onboarding.
+- Errors when saving a contact now show a clear message instead of raw Android system error text.
+- Fixed contact photos disappearing after syncing to Nextcloud; the photo wasn't marked as the primary photo when saved, so the sync didn't recognize it as the image to upload.
+
+---
+
 ## [1.6.0]
 ### Fixed
 - Vinci folder was not editable — the field in Settings → Nextcloud is now tappable and opens an edit dialog.
