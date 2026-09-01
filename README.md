@@ -72,23 +72,44 @@ Requires Android Studio Ladybug or newer, JDK 17+.
 
 ---
 
-## Contributing
+## About Author
 
-Vinci is licensed under the [GNU General Public License v3.0](LICENSE). Pull requests are welcome. Please open an issue first for larger changes.
+Hi, I'm [Andrei Barburas](https://barburas.com). By day, I work at the intersection of information management, intelligence gathering, and human cyber risk; designing systems that make sense of complexity and surface what usually stays unseen, drawing on a background in counter-terrorism research and the behavioral patterns behind radicalization and digital vulnerability. I also lecture in Ethics, Communication Management, and Cross-Cultural Management, and write and teach courses on psychology, culture, and critical thinking.
 
----
+This corner of GitHub is the other side of that same instinct. I build a small collection of free, open-source tools for people who self-host: a suite of [Android Apps](https://github.com/stars/andreibarburas/lists/android-apps) designed around Nextcloud and selfhosters, along with [Home Assistant Apps](https://github.com/andreibarburas/hassio-apps) and a handful of [Wordpress Plugins](https://github.com/andreibarburas/lists/wordpress-plugins).
 
-## Donate
+I started making these because I wanted something the existing options didn't offer; small, focused tools that fit my own self-hosted setup instead of forcing me to compromise. No ads, no tracking, GPLv3 licensed where applicable, and built to work with the tools people already run at home.
 
-Vinci is free and open source. If it's useful to you, consider buying me a coffee:  
-[bunq.me/barburasdonations](https://bunq.me/barburasdonations)
+## AI Usage
 
----
+I'm open about the fact that I use AI throughout development. It genuinely helps me move faster and build things I wouldn't otherwise have time for as one person. But AI doesn't replace the actual work; I still spend the evenings figuring out what something should actually do, testing it against real setups and edge cases, and tracking down the inevitable weird bugs. AI is a tool I use, not a shortcut around the thinking.
 
-## Part of the Suite
+## Support
 
-Vinci is part of a collection of free, open-source, privacy-first Android apps for the self-hosted community:  
-[play.google.com/store/apps/dev?id=6842866278906089090](https://play.google.com/store/apps/dev?id=6842866278906089090)
+If my work saves you time, a small tip means a lot:
+
+- **Donate:** [bunq.me/barburasdonations](https://bunq.me/barburasdonations?description=Donation%20from%20Github)
+- **GitHub Sponsors:** [github.com/sponsors/andreibarburas](https://github.com/sponsors/andreibarburas)
+- **Website:** [barburas.com](https://barburas.com)
+- **Issues & feature requests:** [open an issue](https://github.com/andreibarburas/vinci-android/issues)
+
+## Links
+
+- [Play Store](https://play.google.com/store/apps/dev?id=6842866278906089090)
+- [r/BarburasLab](https://reddit.com/r/barburaslab)
+- [Privacy Policy](https://barburas.com/privacy-policy/)
+
+## Other work on Github
+
+- [Android Apps](https://github.com/stars/andreibarburas/lists/android-apps)
+- [Home Assistant Apps](https://github.com/andreibarburas/hassio-apps)
+- [Wordpress Plugins](https://github.com/stars/andreibarburas/lists/wordpress-plugins)
+
+## License
+
+All my work is licensed under the [GNU General Public License v3.0](LICENSE).
+
+You are free to use, study, modify, and redistribute this software, provided that any distributed modifications are also licensed under GPL v3 and the source code remains available.
 
 ---
 
