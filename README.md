@@ -2,9 +2,13 @@
 
 > Stay in touch with the people who matter — synced to your own Nextcloud.
 
-[![Get it on Google Play](https://img.shields.io/badge/Google%20Play-Download-brightgreen?logo=google-play&logoColor=white)](https://play.google.com/store/apps/dev?id=6842866278906089090)
+![GitHub Release](https://img.shields.io/github/v/release/andreibarburas/vinci-android?style=flat&link=https://github.com/andreibarburas/vinci-android/releases)
+![GitHub last commit](https://img.shields.io/github/last-commit/andreibarburas/vinci-android)
+![GitHub Issues](https://img.shields.io/github/issues/andreibarburas/vinci-android?link=https://github.com/andreibarburas/vinci-android/issues)
+[![Get it on Google Play](https://img.shields.io/badge/Google%20Play-Download-brightgreen?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.brbrs.vinci)
 [![F-Droid](https://img.shields.io/badge/F--Droid-coming%20soon-blue?logo=f-droid)](https://f-droid.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-purple.svg)](LICENSE)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/andreibarburas?link=https://github.com/sponsors/andreibarburas)
 
 ---
 
@@ -88,16 +92,17 @@ I'm open about the fact that I use AI throughout development. It genuinely helps
 
 If my work saves you time, a small tip means a lot:
 
-- **Donate:** [bunq.me/barburasdonations](https://bunq.me/barburasdonations?description=Donation%20from%20Github)
-- **GitHub Sponsors:** [github.com/sponsors/andreibarburas](https://github.com/sponsors/andreibarburas)
-- **Website:** [barburas.com](https://barburas.com)
-- **Issues & feature requests:** [open an issue](https://github.com/andreibarburas/vinci-android/issues)
+- ⭐ **Donate via Bunq (my bank):** [bunq.me/barburasdonations](https://bunq.me/barburasdonations?description=Donation%20from%20Github)
+- 🐈‍⬛ **GitHub Sponsors:** [github.com/sponsors/andreibarburas](https://github.com/sponsors/andreibarburas)
+- ☕ **Buy me a coffee:** [buymeacoffee.com/barburas](https://buymeacoffee.com/barburas)
+- 🌐 **Website:** [barburas.com](https://barburas.com)
+- 🐛 **Issues & feature requests:** [open an issue](/issues)
 
 ## Links
 
-- [Play Store](https://play.google.com/store/apps/dev?id=6842866278906089090)
-- [r/BarburasLab](https://reddit.com/r/barburaslab)
-- [Privacy Policy](https://barburas.com/privacy-policy/)
+- [Play Store](https://play.google.com/store/apps/dev?id=6842866278906089090) [![Google Play Store](https://img.shields.io/badge/Google_Play-414141?logo=google-play&logoColor=white)](https://play.google.com/store/apps/dev?id=6842866278906089090)
+- [r/BarburasLab](https://reddit.com/r/barburaslab) ![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/BarburasLab?style=flat&logo=reddit&link=https://reddit.com/barburaslab)
+- [Privacy Policy](https://barburas.com/privacy-policy/) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-purple.svg)](LICENSE)
 
 ## Other work on Github
 
