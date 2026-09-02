@@ -120,4 +120,4 @@ You are free to use, study, modify, and redistribute this software, provided tha
 
 ---
 
-*by [andrei BARBURAS](https://barburas.com)*
+*by [andrei BARBURAS](https://barburas.com)* 
