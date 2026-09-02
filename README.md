@@ -98,7 +98,7 @@ If my work saves you time, a small tip means a lot:
 - 🐈‍⬛ **GitHub Sponsors:** [github.com/sponsors/andreibarburas](https://github.com/sponsors/andreibarburas)
 - ☕ **Buy me a coffee:** [buymeacoffee.com/barburas](https://buymeacoffee.com/barburas)
 - 🌐 **Website:** [barburas.com](https://barburas.com)
-- 🐛 **Issues & feature requests:** [open an issue](/issues)
+- 🐛 **Issues & feature requests:** [open an issue](../../issues)
 
 ## Links
 
