@@ -5,9 +5,11 @@
 ![GitHub Release](https://img.shields.io/github/v/release/andreibarburas/vinci-android?style=flat&link=https://github.com/andreibarburas/vinci-android/releases)
 ![GitHub last commit](https://img.shields.io/github/last-commit/andreibarburas/vinci-android)
 ![GitHub Issues](https://img.shields.io/github/issues/andreibarburas/vinci-android?link=https://github.com/andreibarburas/vinci-android/issues)
+
 [![Get it on Google Play](https://img.shields.io/badge/Google%20Play-Download-brightgreen?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.brbrs.vinci)
 [![F-Droid](https://img.shields.io/badge/F--Droid-coming%20soon-blue?logo=f-droid)](https://f-droid.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-purple.svg)](LICENSE)
+
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/andreibarburas?link=https://github.com/sponsors/andreibarburas)
 
 ---
