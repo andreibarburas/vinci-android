@@ -5,6 +5,85 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [2.5.0]
+### New
+Local-only mode
+- You can now use Vinci without a Nextcloud server. On first launch, choose between connecting to Nextcloud or keeping everything on your device. The choice can be changed later from Settings.
+
+Backup and restore (local mode)
+- Export your entire history: interactions, contacts, companies, and all display settings; as a single ZIP file you can save anywhere. Restore it on a new device or after a fresh install. Contacts that can’t be matched to your address book on the new device are flagged for review rather than lost.
+
+Native Nextcloud contact sync - no DAVx5 needed
+- Vinci can now read and write your Nextcloud contacts directly, mirroring them into Android’s Contacts so they show up in the system Contacts app, dialer, and anywhere else on your phone. Edits made in the system Contacts app push back out to Nextcloud automatically. Contact photos round-trip in both directions. Enable it in Settings → Sync → “Sync with Android Contacts.”
+
+Sync status, visible
+- Settings now shows live progress (“Syncing… 420/1315”) and a “Last synced HH:mm · N contacts” line once done. A notification shows the same progress while a sync is running and no longer gets stuck. A “Sync now” action retries safely; unlike toggling sync off and back on, it never deletes already-synced contacts.
+
+### Fixed & Improved
+Sync reliability
+- Fixed large address books (1000+ contacts) stalling partway through a sync
+- Fixed a completed sync still showing a stale, lower contact count
+- vCards are now fetched concurrently, substantially cutting total sync time
+- A sync can no longer run indefinitely or leave things in a half-finished state
+
+Bug fixes
+- Fixed a race condition during first-run onboarding that could send new users to two screens simultaneously
+- Permissions screen now shows accurate messaging for local vs. Nextcloud mode
+- New contacts created in Vinci now correctly attach to Nextcloud sync even without DAVx5 installed (2.5.0)
+
+Settings
+- The Account and Data sections adapt to your storage mode. Local users see backup/restore options and a “Connect to Nextcloud” button; Nextcloud users see the existing server and sync controls.
+
+---
+
+## [2.2.0]
+### New
+- Company pages: Vinci automatically creates a company page for every organization found in your contacts. See all employees in one place, add an RSS/Atom feed, and sync company notes to Nextcloud.
+- Export a contact to PDF: full timeline, SIM labels, inline images, remaining files listed by name
+- Dual-SIM labels: name each line (Personal, Business) and every call carries that label through to Nextcloud
+- Caller preview modes: pick between a richer notification (last 2 to 3 interactions) or a full-screen card over the ringing screen
+- Relationship sparkline: a tiny 12-week activity chart next to the "Logged in Vinci" header showing interaction frequency at a glance
+- Calendar nudges: after a meeting ends, a prompt to log it when attendees match your Vinci contacts
+- Daily follow-up reminder: one summary notification at a time you choose, with Open and Mark done actions
+- Conversation starter: a one-line prompt appears on each contact’s page, assembled from their standing notes and the most recent interaction note, so you always have something to open with
+- A contact can now be the primary record of a Vinci company page.
+
+### Fixed & Improved
+- Tags now sync to Nextcloud: interaction tags are written to the markdown file and parsed back on restore, so the web app can read and edit them
+- Contacts with only an email address (no phone number) no longer show the entire device call history on their profile page
+- Restore from Nextcloud now walks each contact's 'calls/[timestamp]-attachments/' folder and imports every file it finds into the Android attachments table (deduped by logId + fileName), so web-side uploads surface locally.
+
+---
+
+## [2.0.1]
+### Fixed & Improved
+- Fixed the System theme showing incorrect colors when the device was actually in light mode.
+- Fixed the OLED Black theme not applying true black backgrounds consistently across the app.
+
+---
+
+## [2.0.0]
+### New
+- Global interaction search: search notes, reasons, and outcomes across every contact at once; not just one contact's history at a time.
+- Duplicate/merge assistant: a new screen (Settings → Duplicate contacts) spots probable duplicates; same name, different Nextcloud identity and merges one's interaction history onto the other in a tap.
+- Interaction templates: quick-fill presets (Intake call, Reference check, Advisory session, Follow-up chat) that pre-populate type, reason, and follow-up when logging.
+- Pre-call briefing: tapping Call now surfaces your last few interactions with that person first, so you remember what you talked about before you dial.
+- Share-sheet capture: share a link, text, or image from any app straight into Vinci; pick a contact and it lands as a note or attachment.
+- Sketch attachments: draw a quick diagram or note by hand and attach it to an interaction.
+- Timeline view: a new vertical-timeline layout for a contact's history, with month dividers; toggle between it and the original stacked-card view.
+- OLED Black theme: a fourth theme option alongside System, Light, and Dark, with true-black surfaces.
+- Pull to refresh: swipe down on Home or your contact list to sync immediately.
+- Editorial alphabet index: contact list section headers are now large serif letters for a more magazine-like feel.
+
+### Fixed & Improved
+- Per-type color hints: calls, meetings, emails, and messages each get a distinct hue within the purple palette, so timelines and lists are easier to scan at a glance.
+- Stacked avatars: group interactions now show overlapping participant photos instead of a plain "+N" badge.
+- Photo-tinted contact pages: each contact's page now pulls a soft, muted color from their photo as a subtle backdrop.
+- Shared-element transitions: tapping a contact now smoothly morphs their avatar from the list into their detail page, with a satisfying spring animation and haptic feedback when starring a contact.
+- Time-of-day background: the app's background gradient shifts almost imperceptibly across the day; a touch warmer at dusk, deeper at night.
+
+---
+
 ## [1.7.0]
 ### New
 - Contact photos can now be cropped before saving; pick an image and you'll get a square crop with a circular guide overlay, so you can see exactly how it'll look once displayed as a circle (matching how Nextcloud shows avatars).

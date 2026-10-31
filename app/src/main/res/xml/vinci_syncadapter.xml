@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Feature #ContactContract: contentAuthority is ContactsContract.AUTHORITY
+     ("com.android.contacts"), the shared system contacts provider every contacts sync adapter
+     (DAVx5 included) registers against. userVisible="false": no entry in Settings -> Accounts
+     -> Vinci -> "Sync Contacts" toggle of its own; the sync is turned on/off from Vinci's own
+     Settings screen instead. -->
+<sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
+    android:contentAuthority="com.android.contacts"
+    android:accountType="com.brbrs.vinci"
+    android:userVisible="false"
+    android:supportsUploading="true"
+    android:isAlwaysSyncable="true"
+    android:allowParallelSyncs="false" />

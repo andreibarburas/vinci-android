@@ -133,6 +133,63 @@ private val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+// v8 → v9: companies table (notes, website and RSS feed address per company).
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS companies (
+                companyKey TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                website TEXT NOT NULL,
+                feedUrl TEXT NOT NULL,
+                notes TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                isSynced INTEGER NOT NULL,
+                PRIMARY KEY(companyKey)
+            )
+        """.trimIndent())
+    }
+}
+
+// v9 → v10: add simLabel to call_logs so Call interactions remember which phone/line they
+// belong to (Personal/Business dual-SIM). Default is empty for existing rows.
+private val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE call_logs ADD COLUMN simLabel TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+// v10 → v11: add primaryContactUid to companies so a contact (its vCard) can be marked as the
+// company's own primary record, unifying a "Barburas" person-contact with the "Barburas"
+// Company page without touching the vCard itself.
+private val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE companies ADD COLUMN primaryContactUid TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+// v11 → v12: add linkedExternalItems to call_logs so a specific interaction can point at the
+// cards/tasks/notes (from Tavla/Koto/Nóta) it's about, not just the contact as a whole.
+private val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE call_logs ADD COLUMN linkedExternalItems TEXT NOT NULL DEFAULT '[]'")
+    }
+}
+
+// v12 → v13: contact_sync_state table for feature #ContactContract (CardDAV UID <-> raw contact
+// id + ETag bookkeeping -- see VinciDatabase.kt's doc comment above that entity).
+private val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_sync_state (
+                uid TEXT NOT NULL PRIMARY KEY,
+                rawContactId INTEGER NOT NULL,
+                etag TEXT NOT NULL
+            )
+        """.trimIndent())
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -148,6 +205,11 @@ object AppModule {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             .build()
 
@@ -159,6 +221,12 @@ object AppModule {
 
     @Provides @Singleton
     fun provideAttachmentDao(db: VinciDatabase): AttachmentDao = db.attachmentDao()
+
+    @Provides @Singleton
+    fun provideCompanyDao(db: VinciDatabase): com.brbrs.vinci.data.CompanyDao = db.companyDao()
+
+    @Provides @Singleton
+    fun provideContactSyncStateDao(db: VinciDatabase): com.brbrs.vinci.data.ContactSyncStateDao = db.contactSyncStateDao()
 
     @Provides @Singleton @ApplicationScope
     fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -179,7 +247,7 @@ object AppModule {
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "Vinci/1.7.0 (Android)")
+                        .header("User-Agent", "Vinci/${com.brbrs.vinci.BuildConfig.VERSION_NAME} (Android)")
                         .build()
                 )
             }

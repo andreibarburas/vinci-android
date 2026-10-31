@@ -14,8 +14,8 @@ android {
         applicationId = "com.brbrs.vinci"
         minSdk = 28
         targetSdk = 36
-        versionCode = 48
-        versionName = "1.7.0"
+        versionCode = 53
+        versionName = "2.5.0"
     }
 
     buildTypes {
@@ -36,7 +36,10 @@ android {
 
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     lint {
         disable += "NullSafeMutableLiveData"
@@ -84,5 +87,6 @@ dependencies {
     implementation(libs.biometric)
     implementation(libs.coil.compose)
     implementation(libs.ucrop)
+    implementation(libs.palette.ktx)
     implementation(libs.coroutines.android)
 }

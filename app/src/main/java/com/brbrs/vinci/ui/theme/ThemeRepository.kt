@@ -1,7 +1,7 @@
 package com.brbrs.vinci.ui.theme
 
 import android.content.Context
-import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -12,16 +12,24 @@ import javax.inject.Singleton
 
 private val Context.themeDataStore by preferencesDataStore(name = "vinci_theme")
 
+/** "system", "light", "dark", or "oled". */
 @Singleton
 class ThemeRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-    private val IS_DARK = booleanPreferencesKey("is_dark")
+    private val THEME_MODE = stringPreferencesKey("theme_mode")
 
-    val isDark: Flow<Boolean> = context.themeDataStore.data
-        .map { prefs -> prefs[IS_DARK] ?: true }
+    val themeMode: Flow<String> = context.themeDataStore.data
+        .map { prefs -> prefs[THEME_MODE] ?: "dark" }
+
+    /** Back-compat convenience for call sites that only care light vs dark (not "system"/"oled"). */
+    val isDark: Flow<Boolean> = themeMode.map { it != "light" }
+
+    suspend fun setThemeMode(mode: String) {
+        context.themeDataStore.edit { it[THEME_MODE] = mode }
+    }
 
     suspend fun setDark(dark: Boolean) {
-        context.themeDataStore.edit { it[IS_DARK] = dark }
+        setThemeMode(if (dark) "dark" else "light")
     }
 }

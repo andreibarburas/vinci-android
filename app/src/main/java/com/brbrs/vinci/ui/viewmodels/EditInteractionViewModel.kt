@@ -12,16 +12,21 @@ import com.brbrs.vinci.data.ContactDao
 import com.brbrs.vinci.data.ContactEntity
 import com.brbrs.vinci.ui.theme.DisplayPreferencesRepository
 import com.brbrs.vinci.network.WebDavRepository
-import com.brbrs.vinci.tasks.TasksOrgHelper
-import com.brbrs.vinci.tasks.TasksPreference
+import com.brbrs.vinci.tasks.KotoHelper
+import com.brbrs.vinci.tasks.KotoPreference
 import com.brbrs.vinci.di.ApplicationScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
+import com.brbrs.vinci.network.LinkedItem
+import com.brbrs.vinci.network.ContactLinksRepository
+import com.brbrs.vinci.util.InteractionLinkedItemRef
 import com.brbrs.vinci.util.InteractionParticipant
 import com.brbrs.vinci.util.normalizePhone
+import com.brbrs.vinci.util.parseInteractionLinkedItems
 import com.brbrs.vinci.util.parseParticipants
+import com.brbrs.vinci.util.serializeInteractionLinkedItems
 import com.brbrs.vinci.util.serializeParticipants
 import org.json.JSONArray
 import kotlinx.coroutines.launch
@@ -50,6 +55,10 @@ data class EditInteractionUiState(
     val attachments: List<AttachmentEntity> = emptyList(),
     val isUploadingAttachment: Boolean = false,
     val attachmentError: String? = null,
+    /** User-set label for the SIM this interaction belongs to, round-tripped through Nextcloud. */
+    val simLabel: String = "",
+    /** All labelled SIMs the user has configured (shown as choices on Call-type interactions). */
+    val availableSimLabels: List<String> = emptyList(),
     /** Social platforms available for this contact (e.g. ["linkedin","instagram"]),
      *  derived from their vCard social links. Empty if none or unknown contact. */
     val availableSocialTypes: List<String> = emptyList(),
@@ -62,6 +71,10 @@ data class EditInteractionUiState(
     val participantSearchResults: List<ContactEntity> = emptyList(),
     // uid -> photoUri, so participant chips can show a picture without a lookup on every recomposition
     val participantPhotos: Map<String, String> = emptyMap(),
+    /** Cards/tasks/notes already linked to this contact (from Tavla/Koto/Nóta) that this
+     *  interaction could be about. See [LogInteractionUiState.availableLinkedItems]. */
+    val availableLinkedItems: List<LinkedItem> = emptyList(),
+    val selectedLinkedItems: List<LinkedItem> = emptyList(),
 )
 
 @HiltViewModel
@@ -74,7 +87,8 @@ class EditInteractionViewModel @Inject constructor(
     private val displayPrefs: DisplayPreferencesRepository,
     private val webDavRepository: WebDavRepository,
     private val cardDavRepository: com.brbrs.vinci.network.CardDavRepository,
-    private val tasksPref: TasksPreference,
+    private val tasksPref: KotoPreference,
+    private val contactLinksRepository: ContactLinksRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
@@ -106,7 +120,10 @@ class EditInteractionViewModel @Inject constructor(
                     followUpDays         = if (log.followUpDays > 0) log.followUpDays else 3,
                     interactionTimestamp = log.callTimestamp,
                     tasksEnabled         = tasksOn,
-                    tasksInstalled       = TasksOrgHelper.isInstalled(context),
+                    tasksInstalled       = KotoHelper.isInstalled(context),
+                    simLabel             = log.simLabel,
+                    availableSimLabels   = displayPrefs.preferences.first().simLabels.values
+                        .filter { it.isNotBlank() }.distinct().sorted(),
                     participants         = parseParticipants(log.participants),
                 )
             }
@@ -141,6 +158,19 @@ class EditInteractionViewModel @Inject constructor(
                     }
                 }
             }
+
+            // Items already linked to this contact (Tavla/Koto/Nóta) -- offered as the pool
+            // this interaction can point at, pre-selecting whatever was already saved on it.
+            if (contact != null && contact.cardavUid.isNotBlank()) {
+                val linked = runCatching { contactLinksRepository.linkedItemsFor(contact.cardavUid) }.getOrDefault(emptyList())
+                if (linked.isNotEmpty()) {
+                    val savedRefs = parseInteractionLinkedItems(log.linkedExternalItems)
+                    val preselected = linked.filter { item ->
+                        savedRefs.any { ref -> ref.source == item.source && ref.itemId == item.itemId }
+                    }
+                    _uiState.update { it.copy(availableLinkedItems = linked, selectedLinkedItems = preselected) }
+                }
+            }
         }
 
         viewModelScope.launch {
@@ -169,6 +199,7 @@ class EditInteractionViewModel @Inject constructor(
     fun onFollowUpDaysChanged(days: Int)        { _uiState.update { it.copy(followUpDays = days) } }
     fun onTimestampChanged(ts: Long)            { _uiState.update { it.copy(interactionTimestamp = ts) } }
     fun onContactNameInputChanged(name: String) { _uiState.update { it.copy(contactNameInput = name) } }
+    fun onSimLabelSelected(label: String)       { _uiState.update { it.copy(simLabel = if (it.simLabel == label) "" else label) } }
     fun toggleTag(tag: String) {
         val trimmed = tag.trim()
         if (trimmed.isBlank()) return
@@ -228,6 +259,20 @@ class EditInteractionViewModel @Inject constructor(
         _uiState.update { it.copy(participants = it.participants - participant) }
     }
 
+    /** Toggles whether this interaction is linked to [item] (a card/task/note already linked
+     *  to the contact -- see [EditInteractionUiState.availableLinkedItems]). */
+    fun toggleLinkedItem(item: LinkedItem) {
+        _uiState.update {
+            val isSelected = it.selectedLinkedItems.any { s -> s.source == item.source && s.itemId == item.itemId }
+            it.copy(
+                selectedLinkedItems = if (isSelected)
+                    it.selectedLinkedItems.filterNot { s -> s.source == item.source && s.itemId == item.itemId }
+                else
+                    it.selectedLinkedItems + item,
+            )
+        }
+    }
+
     fun save() {
         val state = _uiState.value
         val log   = state.log ?: return
@@ -245,6 +290,10 @@ class EditInteractionViewModel @Inject constructor(
                 participants     = serializeParticipants(state.participants),
                 followUpDays     = if (state.followUpEnabled) state.followUpDays else 0,
                 callTimestamp    = state.interactionTimestamp,
+                simLabel         = state.simLabel,
+                linkedExternalItems = serializeInteractionLinkedItems(
+                    state.selectedLinkedItems.map { InteractionLinkedItemRef(it.source, it.itemId) }
+                ),
                 isSynced         = false,
             )
             callLogDao.updateLog(updated)
@@ -265,7 +314,7 @@ class EditInteractionViewModel @Inject constructor(
                     val dueMs = System.currentTimeMillis() + (state.followUpDays.toLong() * 24 * 60 * 60 * 1000)
                     contactDao.setFollowUp(contact.id, dueMs)
                     if (state.tasksEnabled && state.tasksInstalled) {
-                        TasksOrgHelper.createTask(context, "Follow up with ${contact.displayName}", "Re: ${updated.reason}\n\n${updated.notes}".trim())
+                        KotoHelper.createTask(context, "Follow up with ${contact.displayName}", "Re: ${updated.reason}\n\n${updated.notes}".trim())
                     }
                 }
             }

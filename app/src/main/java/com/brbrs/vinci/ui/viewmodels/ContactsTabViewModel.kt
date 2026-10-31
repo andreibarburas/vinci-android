@@ -44,6 +44,19 @@ class ContactsTabViewModel @Inject constructor(
     private val _taggedContactIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _selectionMode = MutableStateFlow(false)
     private val _selectedIds   = MutableStateFlow<Set<Long>>(emptySet())
+    private val _isRefreshing  = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /** Pull-to-refresh: same catch-up-with-Nextcloud work as the regular Sync action. */
+    fun refresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            runCatching { webDavRepository.syncPendingLogs() }
+            runCatching { webDavRepository.restoreFromNextcloud() }
+            runCatching { webDavRepository.dedupeCallLogs() }
+            _isRefreshing.value = false
+        }
+    }
 
     init {
         viewModelScope.launch {

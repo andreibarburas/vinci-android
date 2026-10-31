@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -28,15 +29,23 @@ import com.brbrs.vinci.ui.viewmodels.OnboardingViewModel
  */
 @Composable
 fun OnboardingScreen(
-    onContinue: () -> Unit,
+    onContinue: () -> Unit,   // returning user: skip straight to AppLock
+    onGetStarted: () -> Unit, // new user: go to mode picker
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
     val isDark = LocalIsDark.current
     val done by viewModel.onboardingDone.collectAsState()
 
-    // Already onboarded -- skip straight through.
+    // Set the instant "Get started" is tapped, so the markDone() write landing moments later
+    // doesn't also trigger the returning-user effect below and race its own onGetStarted() nav.
+    var navigatedFromButton by rememberSaveable { mutableStateOf(false) }
+
+    // Returning / upgrading user who already completed onboarding — skip to AppLock.
     LaunchedEffect(done) {
-        if (done == true) onContinue()
+        if (done == true && !navigatedFromButton) {
+            viewModel.ensureModePicked()
+            onContinue()
+        }
     }
 
     if (done != false) return // null (loading) or true (skipping) -- render nothing
@@ -90,9 +99,9 @@ fun OnboardingScreen(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OnboardingPoint(
                     icon = Icons.Outlined.CloudOff,
-                    title = "Your data, your server",
-                    body = "Everything you log is stored on your own Nextcloud -- never on " +
-                        "Vinci's or anyone else's servers.",
+                    title = "Your data, your choice",
+                    body = "Keep everything on this device, or sync to your own Nextcloud " +
+                        "server. Nothing ever goes to Vinci's or anyone else's servers.",
                     isDark = isDark,
                 )
                 OnboardingPoint(
@@ -105,17 +114,8 @@ fun OnboardingScreen(
                 OnboardingPoint(
                     icon = Icons.Outlined.AdminPanelSettings,
                     title = "Permissions, explained",
-                    body = "Next, you'll connect to your Nextcloud server and grant a few " +
-                        "permissions -- we'll explain exactly why each one is needed.",
-                    isDark = isDark,
-                )
-                OnboardingPoint(
-                    icon = Icons.Outlined.Sync,
-                    title = "Sync contacts with DAVx5 first",
-                    body = "Vinci reads your contacts from this device's address book -- it " +
-                        "doesn't fetch them from Nextcloud directly. Make sure DAVx5 (or " +
-                        "another CardDAV app) has synced your Nextcloud contacts before you " +
-                        "start, or your contact list here will look empty.",
+                    body = "Next, choose how to store your data (local or Nextcloud), then " +
+                        "grant a few permissions -- we'll explain exactly why each one is needed.",
                     isDark = isDark,
                 )
             }
@@ -123,7 +123,7 @@ fun OnboardingScreen(
             Spacer(Modifier.height(40.dp))
 
             Button(
-                onClick = { viewModel.markDone() },
+                onClick = { navigatedFromButton = true; viewModel.markDone(); onGetStarted() },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),

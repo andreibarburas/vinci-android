@@ -45,6 +45,7 @@ fun EditInteractionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isDark  = LocalIsDark.current
+    val isOled  = LocalIsOled.current
     val context = LocalContext.current
     val tsFormat = SimpleDateFormat("yyyy/MM/dd | HH:mm", Locale.getDefault())
 
@@ -75,7 +76,8 @@ fun EditInteractionScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
+                    if (isOled) Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                    else if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
                     else Brush.verticalGradient(listOf(LightBg, LightSurface2))
                 )
                 .padding(padding)
@@ -238,6 +240,40 @@ fun EditInteractionScreen(
                     )
                 }
 
+                // Linked items — only shown when the contact already has cards/tasks/notes
+                // linked (from Tavla/Koto/Nóta); picks which of those this interaction is about.
+                if (uiState.availableLinkedItems.isNotEmpty()) {
+                    EditFormSection(label = "Linked items") {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            uiState.availableLinkedItems.forEach { item ->
+                                val isSelected = uiState.selectedLinkedItems.any {
+                                    it.source == item.source && it.itemId == item.itemId
+                                }
+                                com.brbrs.vinci.ui.components.LinkedItemChip(
+                                    item = item,
+                                    selected = isSelected,
+                                    onClick = { viewModel.toggleLinkedItem(item) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // SIM/phone label: only meaningful on Call-type interactions, and only when
+                // the user has set up labels in Settings. Harmless chip row otherwise.
+                if (uiState.interactionType == "Call" && uiState.availableSimLabels.isNotEmpty()) {
+                    EditFormSection(label = "SIM / phone") {
+                        EditChipRow(
+                            options  = uiState.availableSimLabels,
+                            selected = uiState.simLabel,
+                            onSelect = viewModel::onSimLabelSelected,
+                        )
+                    }
+                }
+
                 EditFormSection(label = "Reason") {
                     EditChipRow(options = INTERACTION_REASONS, selected = uiState.reason, onSelect = viewModel::onReasonSelected)
                 }
@@ -311,6 +347,16 @@ fun EditInteractionScreen(
                 }
 
                 EditFormSection(label = "Attachments") {
+                    var showSketchPad by remember { mutableStateOf(false) }
+                    if (showSketchPad) {
+                        com.brbrs.vinci.ui.components.SketchPadDialog(
+                            onDismiss = { showSketchPad = false },
+                            onSave    = { uri ->
+                                showSketchPad = false
+                                viewModel.attachFiles(listOf(uri))
+                            },
+                        )
+                    }
                     AttachmentsSection(
                         attachments = uiState.attachments,
                         isUploading = uiState.isUploadingAttachment,
@@ -327,6 +373,11 @@ fun EditInteractionScreen(
                         } },
                         onDelete    = { att -> viewModel.deleteAttachment(att) },
                     )
+                    TextButton(onClick = { showSketchPad = true }) {
+                        Icon(Icons.Outlined.Draw, null, tint = CyanPrimary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add a sketch", color = CyanPrimary, style = MaterialTheme.typography.labelLarge)
+                    }
                     if (uiState.attachmentError != null) {
                         Text(uiState.attachmentError!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }

@@ -1,5 +1,6 @@
 package com.brbrs.vinci.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -12,6 +13,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Typography
 import androidx.compose.ui.unit.TextUnit
 import com.brbrs.vinci.R
@@ -61,6 +63,35 @@ val LightTextDim    = Color(0xFF5D4E75)   // readable purple-grey
 val LightGlow       = Color(0x339C27B0)   // proper purple glow on light
 
 val LocalIsDark = compositionLocalOf { true }
+
+// ── Expressive shapes (2.0.0-beta01) ───────────────────────────────────────────
+// Asymmetric "morph" corners for hero surfaces (contact cards, avatars) —
+// replaces the single uniform 12/16dp radius used everywhere pre-2.0.
+// Kept as explicit Shape values (not MaterialTheme.shapes) so buttons, dialogs
+// and sheets elsewhere in the app are unaffected.
+val ExpressiveCardShape: RoundedCornerShape = RoundedCornerShape(
+    topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 8.dp,
+)
+val ExpressiveAvatarShape: RoundedCornerShape = RoundedCornerShape(
+    topStart = 18.dp, topEnd = 8.dp, bottomEnd = 18.dp, bottomStart = 8.dp,
+)
+val ExpressiveFabShape: RoundedCornerShape = RoundedCornerShape(28.dp)
+
+// Tag-chip color rotation — spreads accent duty across secondary/tertiary
+// roles instead of primary carrying every badge in the app.
+val ExpressiveTagPalette: List<Color> = listOf(PurplePrimary, Color(0xFFCE93D8), AmberWarn, GreenOk)
+
+// Per-interaction-type color hints, all within the purple family so a timeline still
+// reads as one coherent app, while letting you scan by color: calls stay the base
+// purple, meetings lean violet-blue, emails lean pink, messages lean teal-purple.
+fun interactionTypeColor(type: String): Color = when {
+    type.startsWith("Social Media") -> Color(0xFFCE93D8)
+    type == "Meeting" -> Color(0xFF7E57C2)
+    type == "Email"   -> Color(0xFFBA68C8)
+    type == "Message" -> Color(0xFF8E7CC3)
+    type == "Other"   -> SlateText
+    else              -> PurplePrimary // "Call"
+}
 
 // ── Color schemes ─────────────────────────────────────────────────────────────
 private val DarkColorScheme = darkColorScheme(
@@ -179,9 +210,22 @@ fun scaledTypography(scale: Float, useCustomFont: Boolean = false): Typography {
     )
 }
 
+// True-black OLED variant of the dark scheme -- same accents, pure-black surfaces so
+// each-pixel-off OLED panels can actually turn those pixels off (saves battery, and the
+// purple accent reads more strikingly against true black than against navy).
+private val OledColorScheme = DarkColorScheme.copy(
+    background         = Color.Black,
+    surface            = Color.Black,
+    surfaceVariant     = Color(0xFF0A0A0A),
+    surfaceContainer   = Color(0xFF111111),
+)
+
+val LocalIsOled = compositionLocalOf { false }
+
 @Composable
 fun VinciTheme(
     isDark: Boolean = true,
+    isOled: Boolean = false,
     textScale: Float = 1.0f,
     useCustomFont: Boolean = false,
     content: @Composable () -> Unit,
@@ -191,11 +235,44 @@ fun VinciTheme(
         useCustomFont     -> VinciTypographyPaired
         else              -> VinciTypography
     }
-    CompositionLocalProvider(LocalIsDark provides isDark) {
+    val colorScheme = when {
+        isOled -> OledColorScheme
+        isDark -> DarkColorScheme
+        else    -> LightColorScheme
+    }
+    CompositionLocalProvider(LocalIsDark provides isDark, LocalIsOled provides isOled) {
         MaterialTheme(
-            colorScheme = if (isDark) DarkColorScheme else LightColorScheme,
+            colorScheme = colorScheme,
             typography  = typography,
             content     = content,
         )
     }
+}
+
+/**
+ * The background gradient's top-stop color shifts subtly across the day: deeper near
+ * midnight, a touch warmer around dusk/dawn. Used behind [NavyDeep]-based screen
+ * backgrounds; a no-op (returns [NavyDeep]) outside dark/OLED modes or when called with
+ * light-scheme colors, since the effect only reads correctly against a dark backdrop.
+ */
+fun timeOfDayTint(hourOfDay: Int, base: Color): Color {
+    // 0-5: deep night (slightly darker/cooler); 6-10: dawn (faint warm lift);
+    // 11-17: day (neutral, same as base); 18-21: dusk (warm lift); 22-23: night.
+    val warmLift = Color(0xFF2A1B10) // subtle warm brown-amber, mixed in at low alpha
+    val coolDeepen = Color(0xFF000000)
+    val blend: Pair<Color, Float> = when (hourOfDay) {
+        in 0..4   -> coolDeepen to 0.12f
+        in 5..8   -> warmLift to 0.05f
+        in 18..20 -> warmLift to 0.08f
+        in 21..23 -> coolDeepen to 0.06f
+        else      -> base to 0f
+    }
+    val (tint, amount) = blend
+    if (amount == 0f) return base
+    return Color(
+        red   = base.red   * (1 - amount) + tint.red   * amount,
+        green = base.green * (1 - amount) + tint.green * amount,
+        blue  = base.blue  * (1 - amount) + tint.blue  * amount,
+        alpha = base.alpha,
+    )
 }

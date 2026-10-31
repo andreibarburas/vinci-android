@@ -5,21 +5,28 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 
-object TasksOrgHelper {
+/**
+ * Hands a follow-up over to Koto, the BarburasLab Nextcloud Tasks client.
+ *
+ * Koto's ShareReceiverActivity accepts ACTION_SEND text/plain with EXTRA_SUBJECT (title) +
+ * EXTRA_TEXT (notes). It creates the task on the user's default Koto list, headless, and shows
+ * a toast; nothing from Vinci leaves the user's Nextcloud.
+ */
+object KotoHelper {
 
-    private const val TASKS_PACKAGE = "org.tasks"
+    private const val KOTO_PACKAGE = "com.brbrs.koto"
 
     fun isInstalled(context: Context): Boolean =
         try {
-            context.packageManager.getPackageInfo(TASKS_PACKAGE, 0)
+            context.packageManager.getPackageInfo(KOTO_PACKAGE, 0)
             true
         } catch (e: PackageManager.NameNotFoundException) {
             false
         }
 
     /**
-     * Open Tasks.org pre-filled with a follow-up reminder from a call log.
-     * Title = contact name + call reason; notes = call summary.
+     * Hands [title] + [notes] to Koto. Returns true if Koto received the share, false if the
+     * app couldn't be reached at all.
      */
     fun createTask(
         context: Context,
@@ -28,7 +35,7 @@ object TasksOrgHelper {
     ): Boolean {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            setPackage(TASKS_PACKAGE)
+            setPackage(KOTO_PACKAGE)
             putExtra(Intent.EXTRA_SUBJECT, title)
             putExtra(Intent.EXTRA_TEXT, notes)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -39,7 +46,7 @@ object TasksOrgHelper {
         } catch (e: ActivityNotFoundException) {
             try {
                 context.startActivity(
-                    context.packageManager.getLaunchIntentForPackage(TASKS_PACKAGE)
+                    context.packageManager.getLaunchIntentForPackage(KOTO_PACKAGE)
                         ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                         ?: return false
                 )

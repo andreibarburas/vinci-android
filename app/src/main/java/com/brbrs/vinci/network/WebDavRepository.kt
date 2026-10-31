@@ -2,6 +2,8 @@ package com.brbrs.vinci.network
 
 import com.brbrs.vinci.auth.AuthRepository
 import com.brbrs.vinci.auth.VinciSession
+import com.brbrs.vinci.data.AttachmentDao
+import com.brbrs.vinci.data.AttachmentEntity
 import com.brbrs.vinci.data.CallLogDao
 import com.brbrs.vinci.data.CallLogEntity
 import com.brbrs.vinci.data.ContactDao
@@ -15,6 +17,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
@@ -26,6 +29,8 @@ class WebDavRepository @Inject constructor(
     private val authRepository: AuthRepository,
     private val callLogDao: CallLogDao,
     private val contactDao: ContactDao,
+    private val attachmentDao: AttachmentDao,
+    private val companyDao: com.brbrs.vinci.data.CompanyDao,
     private val httpClient: OkHttpClient,
 ) {
     // -- Auth helpers --
@@ -196,6 +201,10 @@ class WebDavRepository @Inject constructor(
         val unsynced = callLogDao.getUnsynced()
         for (log in unsynced) {
             if (uploadCallLog(log)) callLogDao.markSynced(log.id)
+        }
+        // Company pages edited while offline (notes, website, feed address) go up with them
+        for (company in companyDao.getUnsynced()) {
+            if (uploadCompany(company)) companyDao.markSynced(company.companyKey, company.updatedAt)
         }
     }
 
@@ -384,12 +393,19 @@ class WebDavRepository @Inject constructor(
                 }
             }
 
-            // 4. List and parse calls/[timestamp].md files (always attempted)
-            val callFiles = listWebDavFiles(client, "$folderUrl/calls")
+            // 4. List and parse calls/[timestamp].md files (always attempted). Then, for each
+            //    log we processed, discover any attachments uploaded elsewhere (e.g. via the
+            //    Lab Suite web app) by PROPFINDing the sibling [timestamp]-attachments folder;
+            //    this is why attachments added on the web were previously invisible on Android.
+            val callChildren = listWebDavChildren(client, "$folderUrl/calls")
+            val callFiles    = callChildren.filter { !it.isDir && it.name.endsWith(".md") }
+            val attachDirs   = callChildren.filter { it.isDir && it.name.endsWith("-attachments") }
+                .associateBy { it.name.removeSuffix("-attachments") }
+
             for (callFile in callFiles) {
-                if (!callFile.endsWith(".md")) continue
-                val callMd = fetchText(client, "$folderUrl/calls/${URLEncoder.encode(callFile, "UTF-8")}") ?: continue
-                val log    = parseCallLogMd(callMd, uid, name, contact?.id ?: -1L) ?: continue
+                val callName  = callFile.name
+                val callMd    = fetchText(client, "$folderUrl/calls/${URLEncoder.encode(callName, "UTF-8")}") ?: continue
+                val log       = parseCallLogMd(callMd, uid, name, contact?.id ?: -1L) ?: continue
 
                 // Insert if new; re-link if existing record was orphaned (contactId = -1)
                 val existing = callLogDao.getLogById(log.id)
@@ -400,10 +416,109 @@ class WebDavRepository @Inject constructor(
                     callLogDao.insertLog(log) // REPLACE orphaned record with linked one
                     logsImported++
                 }
+
+                val callKey = callName.removeSuffix(".md")
+                val attachDir = attachDirs[callKey] ?: continue
+                importAttachmentsFor(
+                    client     = client,
+                    base       = base,
+                    log        = log,
+                    folderName = folder,
+                    attachDirName = attachDir.name,
+                    attachUrl  = "$folderUrl/calls/${URLEncoder.encode(attachDir.name, "UTF-8")}",
+                )
             }
         }
 
+        // Company pages live in Vinci/Companies/ -- pull those too (never overwrites unsynced local edits)
+        runCatching { restoreCompanies(client, base) }
+
         RestoreResult(contactsRestored = contactsRestored, logsImported = logsImported)
+    }
+
+    // -- Companies: Vinci/Companies/[slug]/index.md (notes, website, feed address) --
+
+    /** Folder name for a company: its key with anything but letters/digits turned into hyphens. */
+    private fun companyFolderName(companyKey: String): String =
+        companyKey.trim().replace(Regex("[^\\p{L}\\p{N}]+"), "-").trim('-').ifBlank { "company" }
+
+    suspend fun uploadCompany(company: com.brbrs.vinci.data.CompanyEntity): Boolean = withContext(Dispatchers.IO) {
+        val session = authRepository.session.first() ?: return@withContext false
+        val client  = authedClient(session)
+        val base    = davBase(session)
+        val folder  = URLEncoder.encode(companyFolderName(company.companyKey), "UTF-8")
+
+        listOf("$base/Companies", "$base/Companies/$folder").forEach { url ->
+            runCatching {
+                client.newCall(Request.Builder().url(url).method("MKCOL", null).build()).execute().close()
+            }
+        }
+
+        runCatching {
+            val resp = client.newCall(
+                Request.Builder()
+                    .url("$base/Companies/$folder/index.md")
+                    .put(buildCompanyMarkdown(company).toRequestBody("text/markdown".toMediaType()))
+                    .build()
+            ).execute()
+            resp.isSuccessful.also { resp.close() }
+        }.getOrDefault(false)
+    }
+
+    private suspend fun restoreCompanies(client: OkHttpClient, base: String) {
+        for (folder in listWebDavFolders(client, "$base/Companies")) {
+            val md = fetchText(client, "$base/Companies/${URLEncoder.encode(folder, "UTF-8")}/index.md") ?: continue
+            val remote = parseCompanyMd(md) ?: continue
+            val local = companyDao.get(remote.companyKey)
+            // Never overwrite a local edit that hasn't been uploaded yet; otherwise take the
+            // remote copy when it is newer (e.g. edited from another device).
+            if (local == null || (local.isSynced && remote.updatedAt > local.updatedAt)) {
+                companyDao.upsert(remote)
+            }
+        }
+    }
+
+    private fun buildCompanyMarkdown(c: com.brbrs.vinci.data.CompanyEntity): String {
+        fun oneLine(s: String) = s.replace('\n', ' ').replace('\r', ' ').trim()
+        return buildString {
+            appendLine("# Vinci Company")
+            appendLine()
+            appendLine("company_name: ${oneLine(c.displayName)}")
+            appendLine("company_key: ${oneLine(c.companyKey)}")
+            appendLine("website: ${oneLine(c.website)}")
+            appendLine("feed_url: ${oneLine(c.feedUrl)}")
+            if (c.primaryContactUid.isNotBlank()) appendLine("primary_contact_uid: ${oneLine(c.primaryContactUid)}")
+            appendLine("updated: ${c.updatedAt}")
+            appendLine()
+            appendLine("## Notes")
+            appendLine()
+            append(c.notes.ifBlank { "_No notes recorded._" })
+        }
+    }
+
+    /** Metadata lines come before "## Notes"; everything after it is the notes, verbatim. */
+    private fun parseCompanyMd(content: String): com.brbrs.vinci.data.CompanyEntity? {
+        val marker = "\n## Notes"
+        val notesIdx = content.indexOf(marker)
+        val header = if (notesIdx >= 0) content.substring(0, notesIdx) else content
+        val notes = if (notesIdx >= 0) content.substring(notesIdx + marker.length).trim() else ""
+        val meta = header.lines()
+            .filter { it.contains(":") && !it.startsWith("#") }
+            .associate { line ->
+                val i = line.indexOf(':')
+                line.substring(0, i).trim() to line.substring(i + 1).trim()
+            }
+        val key = meta["company_key"]?.takeIf { it.isNotBlank() } ?: return null
+        return com.brbrs.vinci.data.CompanyEntity(
+            companyKey        = key,
+            displayName       = meta["company_name"]?.takeIf { it.isNotBlank() } ?: key,
+            website           = meta["website"].orEmpty(),
+            feedUrl           = meta["feed_url"].orEmpty(),
+            primaryContactUid = meta["primary_contact_uid"].orEmpty(),
+            notes             = if (notes == "_No notes recorded._") "" else notes,
+            updatedAt         = meta["updated"]?.toLongOrNull() ?: 0L,
+            isSynced          = true,
+        )
     }
 
     // -- WebDAV helpers --
@@ -440,6 +555,97 @@ class WebDavRepository @Inject constructor(
                 .filter { it.isNotBlank() && it != "Contacts" }
                 .toList()
         }.getOrDefault(emptyList())
+    }
+
+    /** One PROPFIND result row: a file (`isDir = false`) or a subfolder (`isDir = true`). */
+    private data class WebDavChild(
+        val name: String,
+        val isDir: Boolean,
+        val size: Long,
+        val contentType: String,
+    )
+
+    /**
+     * One PROPFIND depth=1 that returns everything in [url] (files AND folders), with size and
+     * content-type for files. Used by restore to walk a contact's calls folder and tell call
+     * markdown files apart from `[timestamp]-attachments` subfolders in a single round-trip.
+     */
+    private fun listWebDavChildren(client: OkHttpClient, url: String): List<WebDavChild> {
+        val propfindBody = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <propfind xmlns="DAV:">
+                <prop>
+                    <resourcetype/>
+                    <getcontentlength/>
+                    <getcontenttype/>
+                </prop>
+            </propfind>
+        """.trimIndent()
+        return runCatching {
+            val resp = client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .method("PROPFIND", propfindBody.toRequestBody("application/xml".toMediaType()))
+                    .header("Depth", "1")
+                    .build()
+            ).execute()
+            val body = resp.body?.string() ?: return emptyList()
+            resp.close()
+
+            val hrefRegex       = Regex("<[^>]*:href[^>]*>([^<]+)</[^>]*:href>", RegexOption.IGNORE_CASE)
+            val collectionRegex = Regex("<[^>]*:collection[^>]*[/]?>", RegexOption.IGNORE_CASE)
+            val sizeRegex       = Regex("<[^>]*:getcontentlength[^>]*>([^<]*)</[^>]*:getcontentlength>", RegexOption.IGNORE_CASE)
+            val typeRegex       = Regex("<[^>]*:getcontenttype[^>]*>([^<]*)</[^>]*:getcontenttype>", RegexOption.IGNORE_CASE)
+            val parentHref      = Regex("<[^>]*:href[^>]*>([^<]+)</[^>]*:href>", RegexOption.IGNORE_CASE)
+                .find(body)?.groupValues?.get(1)?.trimEnd('/')
+            val parentName      = parentHref?.substringAfterLast('/')
+
+            body.split(Regex("</[^>]*:response>", RegexOption.IGNORE_CASE))
+                .mapNotNull { block ->
+                    val href = hrefRegex.find(block)?.groupValues?.get(1) ?: return@mapNotNull null
+                    val name = href.trimEnd('/').substringAfterLast('/')
+                    if (name.isBlank() || name == parentName) return@mapNotNull null
+                    val isDir = collectionRegex.containsMatchIn(block)
+                    WebDavChild(
+                        name        = runCatching { URLDecoder.decode(name, "UTF-8") }.getOrDefault(name),
+                        isDir       = isDir,
+                        size        = sizeRegex.find(block)?.groupValues?.get(1)?.toLongOrNull() ?: 0L,
+                        contentType = typeRegex.find(block)?.groupValues?.get(1).orEmpty(),
+                    )
+                }
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Imports attachments found in a `[timestamp]-attachments/` folder on Nextcloud into Room,
+     * skipping any already present (keyed by logId + fileName). Called from restore so files
+     * added through the web app land in the Android UI without the user noticing a round-trip.
+     */
+    private suspend fun importAttachmentsFor(
+        client: OkHttpClient,
+        base: String,
+        log: CallLogEntity,
+        folderName: String,
+        attachDirName: String,
+        attachUrl: String,
+    ) {
+        val files = listWebDavChildren(client, attachUrl).filter { !it.isDir }
+        for (f in files) {
+            val existing = attachmentDao.getByLogIdAndName(log.id, f.name)
+            if (existing != null) continue
+            attachmentDao.insert(
+                AttachmentEntity(
+                    logId         = log.id,
+                    fileName      = f.name,
+                    mimeType      = f.contentType.ifBlank { "application/octet-stream" },
+                    sizeBytes     = f.size,
+                    nextcloudPath = "Contacts/$folderName/calls/$attachDirName/${f.name}",
+                    localPath     = "",
+                    cachedLocally = false,
+                    isSynced      = true,
+                )
+            )
+        }
     }
 
     /**
@@ -546,6 +752,8 @@ class WebDavRepository @Inject constructor(
             val outcome    = field("Outcome")
             val followUpRaw= field("Follow-up")
             val direction  = field("Direction")
+            val simLabel   = field("SIM")
+            val tagsRaw    = field("Tags")
 
             // Parse timestamp - use as stable ID
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -571,6 +779,17 @@ class WebDavRepository @Inject constructor(
             val participantsJson = lines.firstOrNull { it.startsWith("participants:") }
                 ?.substringAfter("participants:")?.trim()?.ifBlank { "[]" } ?: "[]"
 
+            // Linked cards/tasks/notes (from Tavla/Koto/Nóta) this interaction is about --
+            // same raw-JSON-line pattern as participants above, so it round-trips exactly.
+            val linkedItemsJson = lines.firstOrNull { it.startsWith("linked_items:") }
+                ?.substringAfter("linked_items:")?.trim()?.ifBlank { "[]" } ?: "[]"
+
+            // Tags: "Label A, Label B" → JSON array ["Label A","Label B"]
+            val tagsJson = if (tagsRaw.isNotBlank()) {
+                val tagList = tagsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                org.json.JSONArray(tagList).toString()
+            } else "[]"
+
             CallLogEntity(
                 id              = ts,  // timestamp as stable ID - prevents duplicates
                 contactId       = contactId,
@@ -584,8 +803,11 @@ class WebDavRepository @Inject constructor(
                 reason          = reason.ifBlank { "Other" },
                 outcome         = outcome.ifBlank { "Neutral" },
                 notes           = notes,
+                tags            = tagsJson,
                 participants    = participantsJson,
                 followUpDays    = followUpDays,
+                simLabel        = simLabel,
+                linkedExternalItems = linkedItemsJson,
                 isSynced        = true,
             )
         }.getOrNull()
@@ -614,11 +836,15 @@ class WebDavRepository @Inject constructor(
             if (log.participants.isNotBlank() && log.participants != "[]") {
                 appendLine("participants: ${log.participants}")
             }
+            if (log.linkedExternalItems.isNotBlank() && log.linkedExternalItems != "[]") {
+                appendLine("linked_items: ${log.linkedExternalItems}")
+            }
             appendLine()
             appendLine("**Date:** $date  ")
             if (log.interactionType == "Call") {
                 appendLine("**Direction:** ${if (log.isOutgoing) "Outgoing" else "Incoming"}  ")
                 if (log.durationSeconds > 0) appendLine("**Duration:** ${formatDuration(log.durationSeconds)}  ")
+                if (log.simLabel.isNotBlank()) appendLine("**SIM:** ${log.simLabel}  ")
             }
             if (participantNames.isNotEmpty()) {
                 appendLine("**With:** ${participantNames.joinToString(", ")}  ")
@@ -626,6 +852,13 @@ class WebDavRepository @Inject constructor(
             appendLine("**Reason:** ${log.reason}  ")
             appendLine("**Outcome:** ${log.outcome}  ")
             appendLine("**Follow-up:** $followUp  ")
+            if (log.tags.isNotBlank() && log.tags != "[]") {
+                val tagList = runCatching {
+                    val arr = org.json.JSONArray(log.tags)
+                    (0 until arr.length()).map { arr.getString(it) }
+                }.getOrDefault(emptyList())
+                if (tagList.isNotEmpty()) appendLine("**Tags:** ${tagList.joinToString(", ")}  ")
+            }
         }
         return "$header\n\n$meta\n## Notes\n\n${log.notes.ifBlank { "_No notes recorded._" }}"
     }

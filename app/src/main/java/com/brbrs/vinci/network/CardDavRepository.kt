@@ -156,6 +156,112 @@ class CardDavRepository @Inject constructor(
         }
     }
 
+    // -- Address book UID + ETag listing (feature #ContactContract) -----------
+
+    /**
+     * Like [listAddressBookUids] but keeps each contact's ETag too, so a pull can tell which
+     * contacts actually changed since the last sync without refetching every vCard — same
+     * purpose as Zaman's per-calendar feedEtag, at per-contact granularity since CardDAV
+     * addressbooks (unlike Nextcloud's calendar subscriptions) don't expose one collection-wide
+     * ETag that changes on every edit.
+     */
+    suspend fun listAddressBookEntries(): Map<String, String> = withContext(Dispatchers.IO) {
+        val session     = authRepository.session.first() ?: return@withContext emptyMap()
+        val addressBook = discoverAddressBookUrl() ?: return@withContext emptyMap()
+        val client      = authedClient(session)
+
+        val propfind = """<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:"><prop><getetag/></prop></propfind>"""
+
+        return@withContext runCatching {
+            val resp = client.newCall(
+                Request.Builder()
+                    .url(addressBook)
+                    .method("PROPFIND", propfind.toRequestBody("application/xml".toMediaType()))
+                    .header("Depth", "1")
+                    .build()
+            ).execute()
+            val body = resp.body?.string() ?: return@runCatching emptyMap()
+            resp.close()
+
+            // Each <response> block holds one href followed by its getetag, in that order --
+            // same simple sequential-scan assumption listAddressBookUids already relies on
+            // (Nextcloud emits one href+etag pair per block, never interleaved across blocks).
+            val result = mutableMapOf<String, String>()
+            val blocks = body.split(Regex("""(?i)<[^:>]*:?response[ >]"""))
+            val hrefRegex = Regex("""<[^>]*:?href[^>]*>([^<]+\.vcf)</[^>]*:?href>""", RegexOption.IGNORE_CASE)
+            val etagRegex = Regex("""<[^>]*:?getetag[^>]*>([^<]+)</[^>]*:?getetag>""", RegexOption.IGNORE_CASE)
+            blocks.forEach { block ->
+                val uid  = hrefRegex.find(block)?.groupValues?.get(1)
+                    ?.trimEnd('/')?.substringAfterLast('/')?.removeSuffix(".vcf")?.removeSuffix(".VCF")
+                    ?: return@forEach
+                val etag = etagRegex.find(block)?.groupValues?.get(1)?.trim() ?: ""
+                if (uid.isNotBlank()) result[uid] = etag
+            }
+            // Temporary diagnostic for the "sync stops partway" investigation -- tells us
+            // whether a short-circuited pull() is because this parsed zero/few entries from a
+            // response the server did send, or because the server itself only returned a
+            // partial listing (addressBook, response byte length, and parsed count below).
+            android.util.Log.i("VinciContractSync", "listAddressBookEntries: addressBook=$addressBook bodyLen=${body.length} blocks=${blocks.size} parsed=${result.size}")
+            result
+        }.onFailure { e -> android.util.Log.w("VinciContractSync", "listAddressBookEntries failed", e) }
+            .getOrDefault(emptyMap())
+    }
+
+    // -- vCard create/update/delete (feature #ContactContract) -----------------
+
+    /**
+     * Creates or updates a contact's vCard on Nextcloud. [ifMatchEtag] null + [isNew] true means
+     * "must not already exist" (If-None-Match: *); otherwise the stored ETag guards against
+     * clobbering a concurrent server-side edit, same discipline as Zaman's event writes.
+     * Returns the new ETag on success, or null on failure.
+     */
+    suspend fun putVCard(uid: String, vcard: String, ifMatchEtag: String?, isNew: Boolean): String? = withContext(Dispatchers.IO) {
+        val session     = authRepository.session.first() ?: return@withContext null
+        val addressBook = discoverAddressBookUrl() ?: return@withContext null
+        val client      = authedClient(session)
+        val url         = "$addressBook$uid.vcf"
+
+        return@withContext runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .put(vcard.toRequestBody("text/vcard; charset=utf-8".toMediaType()))
+                .apply {
+                    if (isNew) header("If-None-Match", "*")
+                    else if (!ifMatchEtag.isNullOrBlank()) header("If-Match", ifMatchEtag)
+                }
+                .build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) { resp.close(); return@runCatching null }
+            val newEtag = resp.header("ETag")
+            resp.close()
+            // Nextcloud doesn't always echo the new ETag on PUT -- a bare "created/updated OK,
+            // no ETag given" still counts as success, so the next pull's listAddressBookEntries
+            // picks up whatever ETag the server actually assigned.
+            newEtag ?: ""
+        }.getOrNull()
+    }
+
+    /** Deletes a contact's vCard on Nextcloud. [etag], if known, guards against deleting a
+     *  version the user doesn't know they've already edited elsewhere. */
+    suspend fun deleteVCard(uid: String, etag: String?): Boolean = withContext(Dispatchers.IO) {
+        val session     = authRepository.session.first() ?: return@withContext false
+        val addressBook = discoverAddressBookUrl() ?: return@withContext false
+        val client      = authedClient(session)
+        val url         = "$addressBook$uid.vcf"
+
+        return@withContext runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .delete()
+                .apply { if (!etag.isNullOrBlank()) header("If-Match", etag) }
+                .build()
+            val resp = client.newCall(req).execute()
+            // A 404 means it's already gone on the server -- as good as a successful delete.
+            (resp.isSuccessful || resp.code == 404).also { resp.close() }
+        }.getOrDefault(false)
+    }
+
     // -- vCard fetch ----------------------------------------------------------
 
     /**
@@ -189,11 +295,27 @@ class CardDavRepository @Inject constructor(
     // -- vCard write ----------------------------------------------------------
 
     /**
-     * Writes updated social links back to a contact's vCard on Nextcloud.
-     * Fetches the current vCard, replaces X-SOCIALPROFILE and URL lines,
-     * and PUTs it back with the ETag for conflict detection.
+     * Writes updated social links -- and, since this is the one place Vinci already talks
+     * CardDAV directly, the organization/title too -- back to a contact's vCard on Nextcloud.
+     * Fetches the current vCard, replaces the relevant lines, and PUTs it back with the ETag
+     * for conflict detection.
+     *
+     * Organization/title ride along here rather than relying solely on DAVx5's own upload of
+     * the ContactsContract edit: that upload runs on its own schedule, after this call has
+     * already moved the vCard's ETag by rewriting the social lines. DAVx5 then finds its cached
+     * ETag stale, and resolving that conflict can mean re-pulling the server's (still old)
+     * vCard and overwriting the just-made local edit -- which is how a freshly typed company
+     * name was disappearing from Nextcloud *and* from Vinci itself. Setting ORG/TITLE here too
+     * means the server always ends up with the right value in the same PUT, so even if DAVx5
+     * later overwrites the local contact from the server, it overwrites it with the correct
+     * data instead of stale data.
      */
-    suspend fun writeSocialLinks(uid: String, socialLinksJson: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun writeSocialLinks(
+        uid: String,
+        socialLinksJson: String,
+        organization: String = "",
+        jobTitle: String = "",
+    ): Boolean = withContext(Dispatchers.IO) {
         val session     = authRepository.session.first() ?: return@withContext false
         val addressBook = discoverAddressBookUrl() ?: return@withContext false
         val client      = authedClient(session)
@@ -211,14 +333,20 @@ class CardDavRepository @Inject constructor(
             val vcard = getResp.body?.string() ?: return@runCatching false
             getResp.close()
 
-            // 2. Strip existing X-SOCIALPROFILE and social URL lines
+            // 2. Strip existing X-SOCIALPROFILE, social URL, ORG and TITLE lines
             val cleaned = vcard.lines().filter { line ->
                 !line.startsWith("X-SOCIALPROFILE", ignoreCase = true) &&
-                !line.startsWith("IMPP", ignoreCase = true)
+                !line.startsWith("IMPP", ignoreCase = true) &&
+                !line.startsWith("ORG", ignoreCase = true) &&
+                !line.startsWith("TITLE", ignoreCase = true)
             }.joinToString("\n")
 
-            // 3. Build new X-SOCIALPROFILE lines from JSON
-            val newLines = buildSocialLines(socialLinksJson)
+            // 3. Build replacement lines from the current state
+            val newLines = buildString {
+                append(buildSocialLines(socialLinksJson))
+                if (organization.isNotBlank()) appendLine("ORG:${escapeVCardText(organization)}")
+                if (jobTitle.isNotBlank()) appendLine("TITLE:${escapeVCardText(jobTitle)}")
+            }
 
             // 4. Insert before END:VCARD
             val updated = cleaned.replace(
@@ -236,6 +364,10 @@ class CardDavRepository @Inject constructor(
             putResp.isSuccessful.also { putResp.close() }
         }.getOrDefault(false)
     }
+
+    /** Escapes commas, semicolons and backslashes per RFC 6350 so a free-typed value can't break the line. */
+    internal fun escapeVCardText(value: String): String =
+        value.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
 
     // -- vCard parsers --------------------------------------------------------
 
@@ -324,7 +456,7 @@ class CardDavRepository @Inject constructor(
         return result
     }
 
-    private fun buildSocialLines(socialLinksJson: String): String {
+    internal fun buildSocialLines(socialLinksJson: String): String {
         if (socialLinksJson.isBlank() || socialLinksJson == "[]") return ""
         return try {
             val arr = JSONArray(socialLinksJson)

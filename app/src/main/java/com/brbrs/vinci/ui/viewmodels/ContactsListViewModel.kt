@@ -10,7 +10,7 @@ import com.brbrs.vinci.data.CallLogEntity
 import com.brbrs.vinci.data.ContactDao
 import com.brbrs.vinci.data.ContactEntity
 import com.brbrs.vinci.network.ContactsRepository
-import com.brbrs.vinci.tasks.TasksPreference
+import com.brbrs.vinci.tasks.KotoPreference
 import com.brbrs.vinci.ui.theme.DisplayPreferencesRepository
 import com.brbrs.vinci.network.WebDavRepository
 import com.brbrs.vinci.ui.theme.ThemeRepository
@@ -58,7 +58,7 @@ class ContactsListViewModel @Inject constructor(
     private val themeRepository: ThemeRepository,
     private val displayPrefs: DisplayPreferencesRepository,
     private val webDavRepository: WebDavRepository,
-    private val tasksPref: TasksPreference,
+    private val tasksPref: KotoPreference,
 ) : ViewModel() {
 
     private val _searchQuery               = MutableStateFlow("")

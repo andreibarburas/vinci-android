@@ -12,6 +12,7 @@ import javax.inject.Inject
 data class AppLockUiState(
     val isLoading: Boolean = true,
     val isLoggedIn: Boolean = false,
+    val isLocalMode: Boolean = false,
     val appLockEnabled: Boolean = false,
     val unlocked: Boolean = false,
 )
@@ -30,10 +31,12 @@ class AppLockViewModel @Inject constructor(
             combine(
                 authRepository.session,
                 authRepository.appLockEnabled,
-            ) { session, appLock ->
+                authRepository.storageMode,
+            ) { session, appLock, storageMode ->
                 AppLockUiState(
                     isLoading      = false,
-                    isLoggedIn     = session != null,
+                    isLoggedIn     = session != null || storageMode == "local",
+                    isLocalMode    = storageMode == "local",
                     appLockEnabled = appLock,
                     unlocked       = false,
                 )

@@ -26,12 +26,15 @@ fun InteractionsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isDark = LocalIsDark.current
+    val isOled = LocalIsOled.current
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark)
+                if (isOled)
+                    Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                else if (isDark)
                     Brush.verticalGradient(0f to NavyDeep, 0.4f to NavyMid, 1f to NavyDeep)
                 else
                     Brush.verticalGradient(0f to LightBg, 0.4f to Color(0xFFEDE6F8), 1f to LightSurface2)

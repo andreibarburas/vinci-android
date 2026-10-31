@@ -106,6 +106,7 @@ class AuthRepository @Inject constructor(
 
     private val RESTORE_DONE_KEY = stringPreferencesKey("restore_done")
     private val ONBOARDING_DONE_KEY = stringPreferencesKey("onboarding_done")
+    private val STORAGE_MODE_KEY = stringPreferencesKey("storage_mode")
 
     val restoreDone: Flow<Boolean> = context.authDataStore.data.map { prefs ->
         prefs[RESTORE_DONE_KEY]?.toBooleanStrictOrNull() ?: false
@@ -122,6 +123,19 @@ class AuthRepository @Inject constructor(
     suspend fun setOnboardingDone() {
         context.authDataStore.edit { prefs -> prefs[ONBOARDING_DONE_KEY] = "true" }
     }
+
+    // -- Storage mode (local vs Nextcloud)
+
+    /** "local" = no Nextcloud account required; "nextcloud" = full sync (default when upgrading). */
+    val storageMode: Flow<String?> = context.authDataStore.data.map { prefs ->
+        prefs[STORAGE_MODE_KEY]
+    }
+
+    suspend fun setStorageMode(mode: String) {
+        context.authDataStore.edit { prefs -> prefs[STORAGE_MODE_KEY] = mode }
+    }
+
+    suspend fun isLocalMode(): Boolean = storageMode.first() == "local"
 
     // -- Nextcloud Login Flow v2
 

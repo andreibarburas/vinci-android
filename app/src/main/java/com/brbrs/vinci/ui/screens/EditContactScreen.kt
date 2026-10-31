@@ -48,6 +48,7 @@ fun EditContactScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isDark  = LocalIsDark.current
+    val isOled  = LocalIsOled.current
     val context = LocalContext.current
 
     LaunchedEffect(uiState.saved) { if (uiState.saved) onSaved() }
@@ -114,7 +115,8 @@ fun EditContactScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
+                    if (isOled) Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                    else if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
                     else Brush.verticalGradient(listOf(LightBg, LightSurface2))
                 )
                 .padding(padding)

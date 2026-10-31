@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,24 +28,43 @@ import com.brbrs.vinci.ui.components.*
 import com.brbrs.vinci.ui.theme.*
 import com.brbrs.vinci.ui.viewmodels.ContactsListViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onContactClick: (Long) -> Unit,
     onLogCall: (Long, String) -> Unit,
     onEditInteraction: (Long) -> Unit,
     onSettings: () -> Unit,
+    onSearch: () -> Unit = {},
     viewModel: ContactsListViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val isDark  by viewModel.isDark.collectAsState()
+    // Sourced from LocalIsDark (resolved once in MainActivity against the real system
+    // dark-mode setting) rather than viewModel.isDark: that flow is ThemeRepository's
+    // back-compat boolean, which treats "system" as always-dark regardless of the device's
+    // actual setting -- using it here was why "System" looked wrong (dark gradient drawn
+    // under light-scheme surfaces/text whenever the device was actually in light mode).
+    val isDark = LocalIsDark.current
+    val isOled = LocalIsOled.current
 
-    // Background — atmospheric gradient with subtle glow from top
+    // Background — atmospheric gradient with subtle glow from top. In dark mode the
+    // gradient's stops shift almost imperceptibly across the day (deeper near midnight,
+    // a touch warmer at dusk/dawn) via timeOfDayTint — nobody should consciously notice it,
+    // it's just meant to make the app feel a little alive rather than static. OLED mode
+    // skips this entirely in favor of a flat true black.
+    val hourOfDay = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark)
-                    Brush.verticalGradient(0f to NavyDeep, 0.4f to NavyMid, 1f to NavyDeep)
+                if (isOled)
+                    Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                else if (isDark)
+                    Brush.verticalGradient(
+                        0f to timeOfDayTint(hourOfDay, NavyDeep),
+                        0.4f to timeOfDayTint(hourOfDay, NavyMid),
+                        1f to timeOfDayTint(hourOfDay, NavyDeep),
+                    )
                 else
                     Brush.verticalGradient(0f to LightBg, 0.4f to Color(0xFFEDE6F8), 1f to LightSurface2)
             ),
@@ -99,6 +119,7 @@ fun HomeScreen(
                         active = uiState.showRecentInteractions, isDark = isDark) { viewModel.toggleShowRecentInteractions() }
                     TopBarIcon(if (uiState.showRecentCalls) Icons.Outlined.History else Icons.Outlined.HistoryToggleOff,
                         "Recent calls", active = uiState.showRecentCalls, isDark = isDark) { viewModel.toggleShowRecent() }
+                    TopBarIcon(Icons.Outlined.Search, "Search all interactions", active = false, isDark = isDark) { onSearch() }
                     TopBarIcon(Icons.Outlined.Sync, "Sync", active = false, isDark = isDark) { viewModel.sync() }
                     TopBarIcon(if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
                         "Theme", active = false, isDark = isDark) { viewModel.toggleTheme() }
@@ -167,6 +188,11 @@ fun HomeScreen(
             Spacer(Modifier.height(16.dp))
 
             // -- Content --
+            PullToRefreshBox(
+                isRefreshing = uiState.isSyncing,
+                onRefresh    = viewModel::sync,
+                modifier     = Modifier.fillMaxSize(),
+            ) {
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 96.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -317,6 +343,7 @@ fun HomeScreen(
                 }
 
                 item { Spacer(Modifier.height(24.dp)) }
+            }
             }
         }
     }

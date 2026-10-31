@@ -84,6 +84,9 @@ interface ContactDao {
 
     @Query("DELETE FROM contacts WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: List<Long>)
+
+    @Query("DELETE FROM contacts WHERE id = :id")
+    suspend fun deleteContact(id: Long)
 }
 
 // ── Interaction log ───────────────────────────────────────────────────────────
@@ -106,6 +109,14 @@ data class CallLogEntity(
     val tags: String = "",           // JSON array of user-defined tags, e.g. ["Recruiter","Catch-up"]
     val participants: String = "[]", // JSON array of extra people in this interaction, e.g. group calls: [{"uid":"...","name":"Jane Doe"}]
     val followUpDays: Int = 0,
+    /** Label of the SIM/line this interaction came in on, e.g. "Personal" or "Business".
+     *  Blank when the user hasn't labelled this SIM, when the interaction is non-Call, or when
+     *  it was logged manually. Round-trips through the Nextcloud markdown via "**SIM:**". */
+    val simLabel: String = "",
+    /** JSON array of pointers to cards/tasks/notes (already linked to this interaction's
+     *  contact) that this specific interaction is about, e.g. [{"source":"KOTO","itemId":"..."}].
+     *  See [com.brbrs.vinci.util.InteractionLinkedItemRef]. */
+    val linkedExternalItems: String = "[]",
     val isSynced: Boolean = false,
 )
 
@@ -128,8 +139,34 @@ interface CallLogDao {
     @Query("SELECT * FROM call_logs WHERE contactId IS NULL AND normalizedPhone = :normalizedPhone ORDER BY callTimestamp DESC LIMIT 1")
     suspend fun getLatestLogForNumber(normalizedPhone: String): CallLogEntity?
 
+    /** Last N logs for a number across both known-contact and unknown-number interactions,
+     *  used by the on-RINGING caller preview to show the last 2-3 instead of just one. */
+    @Query("SELECT * FROM call_logs WHERE normalizedPhone = :normalizedPhone ORDER BY callTimestamp DESC LIMIT :limit")
+    suspend fun getRecentLogsForNumber(normalizedPhone: String, limit: Int): List<CallLogEntity>
+
+    /**
+     * Caller preview — full picture of the incoming contact:
+     *  1. All interactions where this person is the primary contact.
+     *  2. All interactions where they appear as a participant (group calls/meetings logged
+     *     from someone else's profile — these have a different contactId and may have no
+     *     matching normalizedPhone, so getRecentLogsForNumber misses them entirely).
+     * Returns the N most recent across both sets.
+     */
+    @Query("""
+        SELECT * FROM call_logs
+        WHERE contactId = :contactId
+           OR participants LIKE '%"uid":"' || :contactUid || '"%'
+        ORDER BY callTimestamp DESC
+        LIMIT :limit
+    """)
+    suspend fun getRecentLogsForContact(contactId: Long, contactUid: String, limit: Int): List<CallLogEntity>
+
     @Query("UPDATE call_logs SET contactId = :contactId WHERE contactId IS NULL AND normalizedPhone = :normalizedPhone")
     suspend fun relinkLogsToContact(normalizedPhone: String, contactId: Long)
+
+    /** Duplicate/merge assistant: re-points every interaction from one contact row onto another. */
+    @Query("UPDATE call_logs SET contactId = :keepId WHERE contactId = :mergeId")
+    suspend fun reassignLogs(mergeId: Long, keepId: Long)
 
     @Query("SELECT DISTINCT tags FROM call_logs WHERE tags != ''")
     suspend fun getAllTagSets(): List<String>
@@ -139,6 +176,17 @@ interface CallLogDao {
 
     @Query("SELECT * FROM call_logs ORDER BY callTimestamp DESC LIMIT 20")
     fun getRecentLogs(): Flow<List<CallLogEntity>>
+
+    /** Global search across every contact's interactions -- notes, reason, outcome, or contact name. */
+    @Query("""
+        SELECT * FROM call_logs
+        WHERE notes LIKE '%' || :query || '%'
+           OR reason LIKE '%' || :query || '%'
+           OR outcome LIKE '%' || :query || '%'
+           OR contactName LIKE '%' || :query || '%'
+        ORDER BY callTimestamp DESC
+    """)
+    fun searchAllInteractions(query: String): Flow<List<CallLogEntity>>
 
     @Query("SELECT * FROM call_logs ORDER BY callTimestamp DESC")
     fun getAllLogs(): Flow<List<CallLogEntity>>
@@ -186,6 +234,10 @@ interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE logId = :logId ORDER BY id ASC")
     fun getAttachmentsForLog(logId: Long): Flow<List<AttachmentEntity>>
 
+    /** Dedupe lookup used by restore to avoid re-inserting rows for web-uploaded attachments. */
+    @Query("SELECT * FROM attachments WHERE logId = :logId AND fileName = :fileName LIMIT 1")
+    suspend fun getByLogIdAndName(logId: Long, fileName: String): AttachmentEntity?
+
     @Query("SELECT * FROM attachments WHERE cachedLocally = 1")
     suspend fun getCachedAttachments(): List<AttachmentEntity>
 
@@ -205,15 +257,45 @@ interface AttachmentDao {
     suspend fun clearLocalCache(id: Long)
 }
 
+// ── ContactContract sync state ──────────────────────────────────────────────────
+// Feature #ContactContract: tracks, per CardDAV UID, which ContactsContract raw contact it's
+// mirrored into and what ETag it was last pulled/pushed at -- lets a pull skip refetching every
+// vCard (only ones whose server ETag changed) instead of re-downloading the whole address book
+// every sync, same purpose as Zaman's per-calendar feedEtag.
+
+@Entity(tableName = "contact_sync_state")
+data class ContactSyncStateEntity(
+    @PrimaryKey val uid: String,
+    val rawContactId: Long,
+    val etag: String,
+)
+
+@Dao
+interface ContactSyncStateDao {
+    @Query("SELECT * FROM contact_sync_state")
+    suspend fun getAll(): List<ContactSyncStateEntity>
+
+    @Query("SELECT * FROM contact_sync_state WHERE rawContactId = :rawContactId LIMIT 1")
+    suspend fun byRawContactId(rawContactId: Long): ContactSyncStateEntity?
+
+    @Upsert
+    suspend fun upsert(entity: ContactSyncStateEntity)
+
+    @Query("DELETE FROM contact_sync_state WHERE uid = :uid")
+    suspend fun deleteByUid(uid: String)
+}
+
 // ── Database ──────────────────────────────────────────────────────────────────
 
 @Database(
-    entities = [ContactEntity::class, CallLogEntity::class, AttachmentEntity::class],
-    version = 8,
+    entities = [ContactEntity::class, CallLogEntity::class, AttachmentEntity::class, CompanyEntity::class, ContactSyncStateEntity::class],
+    version = 13,
     exportSchema = false,
 )
 abstract class VinciDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
     abstract fun callLogDao(): CallLogDao
     abstract fun attachmentDao(): AttachmentDao
+    abstract fun companyDao(): CompanyDao
+    abstract fun contactSyncStateDao(): ContactSyncStateDao
 }

@@ -203,8 +203,13 @@ class EditContactViewModel @Inject constructor(
                         createNewContact(state)
                     } else {
                         writeToContactsProvider(state)
-                        // Write social links back to Nextcloud via CardDAV
-                        // (DAVx5 does not round-trip X-SOCIALPROFILE through ContactsContract)
+                        // Write social links -- and organization/title -- back to Nextcloud via
+                        // CardDAV directly. DAVx5 does not round-trip X-SOCIALPROFILE through
+                        // ContactsContract at all, and sending organization/title along in the
+                        // same PUT (rather than leaving them to DAVx5's own, separately-timed
+                        // upload) avoids a race where this call's PUT moves the vCard's ETag
+                        // and DAVx5 resolves the resulting conflict by re-pulling the server's
+                        // (still old) vCard, overwriting the local edit before it ever synced up.
                         val contact = state.contact
                         if (contact != null && contact.cardavUid.isNotBlank()) {
                             val socialJson = JSONArray(
@@ -215,7 +220,12 @@ class EditContactViewModel @Inject constructor(
                                     }
                                 }
                             ).toString()
-                            cardDavRepository.writeSocialLinks(contact.cardavUid, socialJson)
+                            cardDavRepository.writeSocialLinks(
+                                uid = contact.cardavUid,
+                                socialLinksJson = socialJson,
+                                organization = state.organization.trim(),
+                                jobTitle = state.jobTitle.trim(),
+                            )
                         }
                     }
                 }
@@ -343,11 +353,21 @@ class EditContactViewModel @Inject constructor(
     }
 
     /**
-     * Finds an existing DAVx5/Nextcloud sync account from any currently-synced
-     * raw contact, so new contacts are created under the same account.
-     * Returns Pair(accountType, accountName) or null if none found (local contact).
+     * Finds an account to attach a brand-new contact to, so it actually syncs to Nextcloud
+     * instead of staying a device-local contact nobody ever uploads.
+     *
+     * Feature #ContactContract: prefers Vinci's own stub account (com.brbrs.vinci) first, since
+     * that's what [com.brbrs.vinci.sync.contract.ContactContractRepository] now pushes dirty
+     * rows from -- the account this contact needs to be under for its own creation (which
+     * Android auto-marks DIRTY, same as any other non-sync-adapter write) to ever reach the
+     * server. Falls back to a DAVx5-type account for anyone still running DAVx5 instead of
+     * (or before enabling) ContactContract sync; returns null, same as before, if neither
+     * exists -- the new contact simply stays local-only.
      */
     private fun findSyncAccount(): Pair<String, String>? {
+        com.brbrs.vinci.sync.contract.VinciAccount.existsOrNull(context)?.let {
+            return Pair(it.type, it.name)
+        }
         context.contentResolver.query(
             ContactsContract.RawContacts.CONTENT_URI,
             arrayOf(ContactsContract.RawContacts.ACCOUNT_TYPE, ContactsContract.RawContacts.ACCOUNT_NAME),

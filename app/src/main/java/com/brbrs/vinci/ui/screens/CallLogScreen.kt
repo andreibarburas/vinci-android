@@ -11,6 +11,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ fun CallLogScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isDark  = LocalIsDark.current
+    val isOled  = LocalIsOled.current
     val context = LocalContext.current
 
     LaunchedEffect(uiState.saved) {
@@ -62,7 +64,8 @@ fun CallLogScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
+                    if (isOled) Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                    else if (isDark) Brush.verticalGradient(listOf(NavyDeep, NavyMid))
                     else Brush.verticalGradient(listOf(LightBg, LightSurface2))
                 )
                 .padding(padding)
@@ -224,6 +227,26 @@ fun CallLogScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
+                // Quick-fill templates for recurring interaction shapes (intake call,
+                // reference check, etc.) -- just pre-fills type/reason/follow-up below.
+                FormSection(label = "Quick fill") {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(com.brbrs.vinci.util.INTERACTION_TEMPLATES) { template ->
+                            Box(
+                                modifier = Modifier
+                                    .vinciChip(isDark = isDark, selected = false)
+                                    .clickable { viewModel.applyTemplate(template) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            ) {
+                                Text(template.name, style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+
                 // Interaction type
                 FormSection(label = "Type") {
                     ChipRow(
@@ -284,6 +307,41 @@ fun CallLogScreen(
                         onAddFreeText  = viewModel::addParticipantFreeText,
                         onRemove       = viewModel::removeParticipant,
                     )
+                }
+
+                // Linked items — only shown when the contact already has cards/tasks/notes
+                // linked (from Tavla/Koto/Nóta); picks which of those this interaction is about.
+                if (uiState.availableLinkedItems.isNotEmpty()) {
+                    FormSection(label = "Linked items") {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            uiState.availableLinkedItems.forEach { item ->
+                                val isSelected = uiState.selectedLinkedItems.any {
+                                    it.source == item.source && it.itemId == item.itemId
+                                }
+                                com.brbrs.vinci.ui.components.LinkedItemChip(
+                                    item = item,
+                                    selected = isSelected,
+                                    onClick = { viewModel.toggleLinkedItem(item) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // SIM / phone label: only shown on Call interactions when the user has set
+                // up labels in Settings. Prefilled from the post-call notification when the
+                // SIM the call reached has a label.
+                if (uiState.interactionType == "Call" && uiState.availableSimLabels.isNotEmpty()) {
+                    FormSection(label = "SIM / phone") {
+                        ChipRow(
+                            options  = uiState.availableSimLabels,
+                            selected = uiState.simLabel,
+                            onSelect = viewModel::onSimLabelSelected,
+                        )
+                    }
                 }
 
                 // Reason

@@ -37,6 +37,7 @@ class QuickNoteReceiver : BroadcastReceiver() {
         val contactName     = intent.getStringExtra("contact_name") ?: phone
         val isOutgoing      = intent.getBooleanExtra("is_outgoing", false)
         val duration        = intent.getIntExtra("duration", 0)
+        val simLabel        = intent.getStringExtra("sim_label") ?: ""
         val notificationId  = intent.getIntExtra("notification_id", 1001)
 
         val pendingResult = goAsync()
@@ -66,6 +67,7 @@ class QuickNoteReceiver : BroadcastReceiver() {
                             notes           = note,
                             tags            = "",
                             followUpDays    = 0,
+                            simLabel        = simLabel,
                             isSynced        = false,
                         )
                     )

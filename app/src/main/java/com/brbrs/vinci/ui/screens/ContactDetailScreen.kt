@@ -9,6 +9,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -35,6 +38,16 @@ import com.brbrs.vinci.ui.components.SocialIconBadge
 import com.brbrs.vinci.ui.components.platformForKey
 import com.brbrs.vinci.ui.components.platformForUrl
 import com.brbrs.vinci.ui.components.ContactAvatar
+import com.brbrs.vinci.ui.components.relativeTime
+import com.brbrs.vinci.ui.components.FeedPostRow
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.brbrs.vinci.util.isWhatsAppInstalled
 import com.brbrs.vinci.util.isSignalInstalled
 import com.brbrs.vinci.util.openWhatsAppChat
@@ -42,6 +55,10 @@ import com.brbrs.vinci.util.openSignalChat
 import com.brbrs.vinci.ui.theme.*
 import com.brbrs.vinci.ui.viewmodels.ContactDetailViewModel
 import com.brbrs.vinci.ui.viewmodels.RecentInteraction
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Canvas
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.*
@@ -60,14 +77,19 @@ fun ContactDetailScreen(
     onLogInteraction: (Long, String, Long, String) -> Unit,
     onEditInteraction: (Long) -> Unit,
     onEditContact: (Long) -> Unit,
+    onOpenCompany: (String) -> Unit = {},
     viewModel: ContactDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isDark  = LocalIsDark.current
+    val isOled  = LocalIsOled.current
     val contact = uiState.contact
+    val companyPosts by viewModel.companyPosts.collectAsState()
+    val linkedItems by viewModel.linkedItems.collectAsState()
     val exportFile by viewModel.exportFile.collectAsState()
     val localContext = LocalContext.current
 
+    val isExporting by viewModel.isExporting.collectAsState()
     LaunchedEffect(exportFile) {
         exportFile?.let { file ->
             localContext.startActivity(Intent.createChooser(viewModel.shareIntentFor(file), "Share interaction history"))
@@ -75,11 +97,15 @@ fun ContactDetailScreen(
         }
     }
 
+    var timelineMode by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark)
+                if (isOled)
+                    Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                else if (isDark)
                     Brush.verticalGradient(0f to NavyDeep, 0.4f to NavyMid, 1f to NavyDeep)
                 else
                     Brush.verticalGradient(0f to LightBg, 0.4f to Color(0xFFEDE6F8), 1f to LightSurface2)
@@ -102,8 +128,19 @@ fun ContactDetailScreen(
                     Text("Contacts", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.weight(1f))
                     contact?.let { c ->
-                        IconButton(onClick = { viewModel.exportContactHistory() }) {
-                            Icon(Icons.Outlined.Share, "Export history", tint = MaterialTheme.colorScheme.primary)
+                        IconButton(
+                            onClick = { if (!isExporting) viewModel.exportContactHistory() },
+                            enabled = !isExporting,
+                        ) {
+                            if (isExporting) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(Icons.Outlined.PictureAsPdf, "Export as PDF", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                         IconButton(onClick = { onEditContact(c.id) }) {
                             Icon(Icons.Outlined.Edit, "Edit contact", tint = MaterialTheme.colorScheme.primary)
@@ -121,17 +158,64 @@ fun ContactDetailScreen(
                 return@LazyColumn
             }
 
-            // Hero
+            // Hero -- backdrop pulls a soft, muted color from the contact's own photo (Palette
+            // API) so each contact's page feels a little like them. The backdrop itself is now
+            // the contact's own photo, heavily blurred and scrimmed -- an actual frosted-glass
+            // rendering of their picture rather than just a tint pulled from it -- with the
+            // muted-swatch tint kept as the fallback for contacts with no photo at all.
             item {
+                val photoTint = rememberPhotoPaletteTint(contact.photoUri)
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (contact.photoUri.isNotBlank()) {
+                        coil.compose.AsyncImage(
+                            model = android.net.Uri.parse(contact.photoUri),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .matchParentSize()
+                                .blur(60.dp),
+                        )
+                        // Scrim so the name/title stay legible over the frosted photo, in
+                        // whichever theme is active -- heavier at top/bottom, lightest in the
+                        // middle where the avatar itself already sits on the photo directly.
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        0f   to (if (isOled) Color.Black else if (isDark) NavyDeep else LightBg).copy(alpha = 0.55f),
+                                        0.5f to (if (isOled) Color.Black else if (isDark) NavyDeep else LightBg).copy(alpha = 0.30f),
+                                        1f   to (if (isOled) Color.Black else if (isDark) NavyDeep else LightBg).copy(alpha = 0.75f),
+                                    )
+                                ),
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    if (photoTint != null)
+                                        Brush.radialGradient(
+                                            listOf(photoTint.copy(alpha = if (isDark) 0.22f else 0.14f), Color.Transparent),
+                                            radius = 420f,
+                                        )
+                                    else Brush.radialGradient(listOf(Color.Transparent, Color.Transparent))
+                                ),
+                        )
+                    }
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 24.dp),
                 ) {
                     ContactAvatar(
                         photoUri    = contact.photoUri,
                         displayName = contact.displayName,
-                        size        = 96,
+                        size        = 136,
                         shape       = CircleShape,
+                        sharedElementKey = "avatar-${contact.id}",
+                        modifier    = Modifier.border(3.dp, (if (isDark) Color.White else Color.Black).copy(alpha = 0.12f), CircleShape),
                     )
                     Spacer(Modifier.height(14.dp))
                     var showStarDialog by remember { mutableStateOf(false) }
@@ -151,7 +235,9 @@ fun ContactDetailScreen(
                                 )
                             },
                             confirmButton = {
+                                val haptic = LocalHapticFeedback.current
                                 TextButton(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     viewModel.toggleStarred()
                                     showStarDialog = false
                                 }) {
@@ -175,6 +261,11 @@ fun ContactDetailScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                         Spacer(Modifier.width(8.dp))
+                        val starScale = remember { Animatable(1f) }
+                        LaunchedEffect(contact.isStarred) {
+                            starScale.snapTo(1.35f)
+                            starScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                        }
                         IconButton(
                             onClick = { showStarDialog = true },
                             modifier = Modifier.size(28.dp),
@@ -183,28 +274,202 @@ fun ContactDetailScreen(
                                 imageVector = if (contact.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
                                 contentDescription = if (contact.isStarred) "Unstar" else "Star",
                                 tint = if (contact.isStarred) AmberWarn else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .graphicsLayer { scaleX = starScale.value; scaleY = starScale.value },
                             )
                         }
                     }
-                    val role = listOf(contact.jobTitle, contact.organization).filter { it.isNotBlank() }.joinToString(" · ")
-                    if (role.isNotBlank()) {
+                    if (contact.jobTitle.isNotBlank() || contact.organization.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
-                        Text(role, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            if (contact.jobTitle.isNotBlank()) {
+                                Text(contact.jobTitle, style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false))
+                                if (contact.organization.isNotBlank()) {
+                                    Text(" · ", style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            if (contact.organization.isNotBlank()) {
+                                // Tapping the company opens its page: notes, people, news feed, timeline
+                                Text(contact.organization, style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .clickable { onOpenCompany(contact.organization) })
+                            }
+                        }
                     }
+                }
+                }
+            }
+
+            // "This contact is a company" toggle: links the vCard to a Vinci Company page as
+            // its primary record, without touching the vCard itself. Shown as a slim card right
+            // below the hero so it reads as a property of this contact rather than a setting.
+            item {
+                var showConfirm by remember { mutableStateOf(false) }
+                if (showConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirm = false },
+                        title = { Text(if (uiState.isCompanyPrimary) "Unlink from company?" else "Treat as company?") },
+                        text = {
+                            Text(
+                                if (uiState.isCompanyPrimary)
+                                    "${contact.displayName} will no longer be the primary record of its Company page. The page itself stays."
+                                else
+                                    "A Company page named \"${contact.displayName}\" will use this contact as its primary record. Phone, email and photo will show on the page header.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.toggleContactIsCompany()
+                                showConfirm = false
+                            }) {
+                                Text(if (uiState.isCompanyPrimary) "Unlink" else "Link", color = MaterialTheme.colorScheme.primary)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirm = false }) {
+                                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .clickable { showConfirm = true }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.Business, null,
+                        tint = if (uiState.isCompanyPrimary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (uiState.isCompanyPrimary) "Primary record of a company page" else "Treat as company page",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            if (uiState.isCompanyPrimary)
+                                "Tap to unlink. The Company page \"${contact.displayName}\" stays."
+                            else
+                                "Link this contact to a Vinci Company page.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isCompanyPrimary,
+                        onCheckedChange = { showConfirm = true },
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // Conversation starter — one-liner from last note + standing context
+            if (uiState.conversationStarter.isNotBlank()) {
+                item {
+                    androidx.compose.material3.Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        tonalElevation = 0.dp,
+                    ) {
+                        Text(
+                            text = uiState.conversationStarter,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
                 }
             }
 
             // Quick actions
             item {
                 val context = LocalContext.current
+                var showPreCallBriefing by remember { mutableStateOf(false) }
+                val latestPost = companyPosts.firstOrNull()
+
+                if (showPreCallBriefing) {
+                    AlertDialog(
+                        onDismissRequest = { showPreCallBriefing = false },
+                        title = { Text("Before you call ${contact.displayName.substringBefore(' ')}") },
+                        text = {
+                            Column(
+                                modifier = Modifier.verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                uiState.callLogs.take(3).forEach { log ->
+                                    Column {
+                                        Text(
+                                            "${log.interactionType}${if (log.reason.isNotBlank()) " · ${log.reason}" else ""} · ${relativeTime(log.callTimestamp)}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        if (log.notes.isNotBlank()) {
+                                            Text(log.notes, style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                    }
+                                }
+                                // What their company just published, if it has a news feed set up
+                                latestPost?.let { post ->
+                                    Column {
+                                        Text("Latest from ${contact.organization}", style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary)
+                                        Text(post.title, style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showPreCallBriefing = false
+                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}")))
+                            }) { Text("Call now", color = MaterialTheme.colorScheme.primary) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPreCallBriefing = false }) {
+                                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     QuickActionButton(Icons.Outlined.Call, "Call", true, Modifier.weight(1f)) {
-                        if (contact.phoneNumber.isNotBlank())
-                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}")))
+                        if (contact.phoneNumber.isNotBlank()) {
+                            // Not a new data model -- just a different lens on interactions
+                            // already logged: surface the last few before actually dialing.
+                            if (uiState.callLogs.isNotEmpty()) showPreCallBriefing = true
+                            else context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}")))
+                        }
                     }
                     QuickActionButton(Icons.Outlined.EditNote, "Log", false, Modifier.weight(1f)) {
                         onLogInteraction(contact.id, contact.phoneNumber, 0L, "Call")
@@ -395,21 +660,58 @@ fun ContactDetailScreen(
                 uiState.callLogs.take(5)
 
             item {
-                DetailSection(title = "Logged in Vinci · ${uiState.callLogs.size}", isDark = isDark) {
-                    if (uiState.callLogs.isEmpty()) {
-                        Text(
-                            "No interactions logged yet.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        DetailSection(title = "Logged in Vinci · ${uiState.callLogs.size}", isDark = isDark) {
+                            if (uiState.callLogs.isEmpty()) {
+                                Text(
+                                    "No interactions logged yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                )
+                            }
+                        }
+                    }
+                    if (uiState.callLogs.isNotEmpty()) {
+                        // Sparkline: 12-week activity chart
+                        RelationshipSparkline(
+                            logs = uiState.callLogs,
+                            modifier = Modifier
+                                .width(72.dp)
+                                .height(28.dp)
+                                .padding(end = 4.dp),
                         )
+                        IconButton(onClick = { timelineMode = !timelineMode }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                if (timelineMode) Icons.Outlined.ViewAgenda else Icons.Outlined.Timeline,
+                                contentDescription = "Switch between stacked cards and timeline",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
 
-            items(visibleLogs, key = { it.id }) { log ->
-                Spacer(Modifier.height(8.dp))
-                CallLogEntry(log = log, isDark = isDark, onClick = { onEditInteraction(log.id) })
+            if (timelineMode) {
+                itemsIndexed(visibleLogs, key = { _, log -> log.id }) { index, log ->
+                    if (index == 0 || !com.brbrs.vinci.ui.components.sameMonth(visibleLogs[index - 1].callTimestamp, log.callTimestamp)) {
+                        com.brbrs.vinci.ui.components.TimelineMonthDivider(log.callTimestamp)
+                    }
+                    com.brbrs.vinci.ui.components.TimelineNode(
+                        log = log, isDark = isDark, isLast = index == visibleLogs.lastIndex,
+                        onClick = { onEditInteraction(log.id) },
+                    )
+                }
+            } else {
+                items(visibleLogs, key = { it.id }) { log ->
+                    Spacer(Modifier.height(8.dp))
+                    CallLogEntry(log = log, isDark = isDark, onClick = { onEditInteraction(log.id) })
+                }
             }
 
             if (uiState.callLogs.size > 5) {
@@ -425,6 +727,42 @@ fun ContactDetailScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                }
+            }
+
+            // Gives the "Logged in Vinci" section the same trailing gap every other section
+            // gets -- needed whatever the log count is, since neither the empty state nor the
+            // entry list (stacked cards or timeline) end with one of their own.
+            item { Spacer(Modifier.height(14.dp)) }
+
+            // Notes/cards/tasks from Tavla, Koto and Nóta linked to this contact. Hidden
+            // entirely while loading or when there's nothing to show (no Nextcloud session,
+            // none of the three apps installed, or nothing linked yet) -- see
+            // ContactDetailViewModel.linkedItems. Boxed the same way as Phone/Email below.
+            if (!linkedItems.isNullOrEmpty()) {
+                item {
+                    DetailSection(title = "Linked items · ${linkedItems!!.size}", isDark = isDark) {
+                        linkedItems!!.forEachIndexed { i, linked ->
+                            if (i > 0) RowDivider()
+                            com.brbrs.vinci.ui.components.LinkedItemRow(item = linked)
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+
+            // Latest posts from this person's company feed (up to 5, newest first) -- kept last
+            // since it's the one section that isn't really about this contact so much as their
+            // employer, and boxed the same way as the sections above it.
+            if (companyPosts.isNotEmpty()) {
+                item {
+                    DetailSection(title = "Latest from ${contact.organization}", isDark = isDark) {
+                        companyPosts.forEachIndexed { i, post ->
+                            if (i > 0) RowDivider()
+                            FeedPostRow(post = post)
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
                 }
             }
         }
@@ -705,4 +1043,109 @@ private fun formatBirthday(raw: String): String {
             else -> raw
         }
     } catch (e: Exception) { raw }
+}
+
+/**
+ * Extracts a soft, muted color from the contact's photo via the Palette API, for use as a
+ * subtle backdrop tint behind their header. Returns null while loading, with no photo, or
+ * if extraction fails -- callers should fall back to the normal background in that case.
+ */
+@Composable
+private fun rememberPhotoPaletteTint(photoUri: String): Color? {
+    val context = LocalContext.current
+    var tint by remember(photoUri) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(photoUri) {
+        tint = null
+        if (photoUri.isBlank()) return@LaunchedEffect
+        runCatching {
+            val loader = coil.Coil.imageLoader(context)
+            val request = coil.request.ImageRequest.Builder(context)
+                .data(android.net.Uri.parse(photoUri))
+                .allowHardware(false) // Palette needs a software bitmap it can read pixels from
+                .build()
+            val result = loader.execute(request)
+            val bitmap = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+            bitmap?.let { bmp ->
+                val swatch = androidx.palette.graphics.Palette.from(bmp).generate()
+                    .let { it.mutedSwatch ?: it.dominantSwatch }
+                swatch?.let { tint = Color(it.rgb) }
+            }
+        }
+    }
+    return tint
+}
+
+/**
+ * Relationship sparkline — a tiny polyline showing interaction frequency over the last
+ * 12 weeks. Each point is the count of interactions in that calendar week. The line
+ * is drawn in the Vinci purple accent so it reads as "activity heat" at a glance.
+ *
+ * Shown only when there is at least one interaction (a flat-zero line is uninformative).
+ */
+@Composable
+private fun RelationshipSparkline(
+    logs: List<CallLogEntity>,
+    modifier: Modifier = Modifier,
+) {
+    if (logs.isEmpty()) return
+
+    val WEEKS = 12
+    val accentColor = MaterialTheme.colorScheme.primary
+
+    // Bucket interactions into WEEKS weekly bins (0 = oldest, WEEKS-1 = most recent)
+    val buckets = remember(logs) {
+        val now    = System.currentTimeMillis()
+        val weekMs = 7L * 24 * 60 * 60 * 1000
+        val counts = IntArray(WEEKS)
+        for (log in logs) {
+            val ageMs = now - log.callTimestamp
+            val weekIdx = (ageMs / weekMs).toInt()
+            if (weekIdx in 0 until WEEKS) counts[WEEKS - 1 - weekIdx]++
+        }
+        counts
+    }
+
+    val maxCount = buckets.max().coerceAtLeast(1)
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val stepX = w / (WEEKS - 1).toFloat()
+
+        // Build the polyline path
+        val linePath = Path()
+        buckets.forEachIndexed { i, count ->
+            val x = i * stepX
+            val y = h - (count.toFloat() / maxCount) * h * 0.85f  // leave 15% headroom
+            if (i == 0) linePath.moveTo(x, y) else linePath.lineTo(x, y)
+        }
+
+        // Fill area under the line (translucent)
+        val fillPath = Path().apply {
+            addPath(linePath)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(
+            path      = fillPath,
+            color     = accentColor.copy(alpha = 0.12f),
+        )
+
+        // Stroke the line
+        drawPath(
+            path      = linePath,
+            color     = accentColor.copy(alpha = 0.85f),
+            style     = Stroke(width = 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                               join = androidx.compose.ui.graphics.StrokeJoin.Round),
+        )
+
+        // Dot on the most-recent (rightmost) non-zero bucket
+        val lastNonZero = buckets.indexOfLast { it > 0 }
+        if (lastNonZero >= 0) {
+            val x = lastNonZero * stepX
+            val y = h - (buckets[lastNonZero].toFloat() / maxCount) * h * 0.85f
+            drawCircle(color = accentColor, radius = 3.dp.toPx(), center = Offset(x, y))
+        }
+    }
 }

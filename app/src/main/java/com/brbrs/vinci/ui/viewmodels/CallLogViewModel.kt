@@ -9,10 +9,14 @@ import com.brbrs.vinci.data.CallLogEntity
 import com.brbrs.vinci.data.ContactDao
 import com.brbrs.vinci.data.ContactEntity
 import com.brbrs.vinci.network.WebDavRepository
-import com.brbrs.vinci.tasks.TasksOrgHelper
-import com.brbrs.vinci.tasks.TasksPreference
+import com.brbrs.vinci.tasks.KotoHelper
+import com.brbrs.vinci.tasks.KotoPreference
+import com.brbrs.vinci.network.LinkedItem
+import com.brbrs.vinci.network.ContactLinksRepository
+import com.brbrs.vinci.util.InteractionLinkedItemRef
 import com.brbrs.vinci.util.InteractionParticipant
 import com.brbrs.vinci.util.normalizePhone
+import com.brbrs.vinci.util.serializeInteractionLinkedItems
 import com.brbrs.vinci.util.serializeParticipants
 import com.brbrs.vinci.util.stableLogId
 import com.brbrs.vinci.di.ApplicationScope
@@ -71,6 +75,18 @@ data class LogInteractionUiState(
     val participantSearchResults: List<ContactEntity> = emptyList(),
     // uid -> photoUri, so participant chips can show a picture without a lookup on every recomposition
     val participantPhotos: Map<String, String> = emptyMap(),
+    /** User-set label for the SIM/phone this interaction belongs to, e.g. "Personal" or
+     *  "Business". Prefilled from the post-call notification when the call came through a SIM
+     *  that has a label configured in Settings. Empty for interactions logged manually, VoIP
+     *  calls, or unlabelled SIMs. */
+    val simLabel: String = "",
+    /** All labelled SIMs the user has configured, for the chip row when editing. */
+    val availableSimLabels: List<String> = emptyList(),
+    /** Cards/tasks/notes already linked to this contact (from Tavla/Koto/Nóta) that this
+     *  interaction could be about. Empty when the contact has nothing linked -- the "Linked
+     *  items" form section hides itself in that case rather than showing an empty picker. */
+    val availableLinkedItems: List<LinkedItem> = emptyList(),
+    val selectedLinkedItems: List<LinkedItem> = emptyList(),
 )
 
 // Keep old name as alias
@@ -84,7 +100,9 @@ class CallLogViewModel @Inject constructor(
     private val callLogDao: CallLogDao,
     private val webDavRepository: WebDavRepository,
     private val cardDavRepository: com.brbrs.vinci.network.CardDavRepository,
-    private val tasksPref: TasksPreference,
+    private val tasksPref: KotoPreference,
+    private val displayPrefs: com.brbrs.vinci.ui.theme.DisplayPreferencesRepository,
+    private val contactLinksRepository: ContactLinksRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
@@ -92,6 +110,10 @@ class CallLogViewModel @Inject constructor(
     private val prefillTimestamp: Long = savedStateHandle["prefillTimestamp"] ?: 0L
     private val prefillType: String    = URLDecoder.decode(savedStateHandle["prefillType"] ?: "Call", "UTF-8")
     private val prefillPhone: String   = URLDecoder.decode(savedStateHandle["phone"] ?: "", "UTF-8")
+    private val prefillSimLabel: String = URLDecoder.decode(savedStateHandle["simLabel"] ?: "", "UTF-8")
+    private val prefillReason: String = URLDecoder.decode(savedStateHandle["prefillReason"] ?: "", "UTF-8")
+    private val prefillParticipantIds: List<Long> = (savedStateHandle["prefillParticipantIds"] ?: "")
+        .toString().split(",").mapNotNull { it.toLongOrNull() }
 
     private val _uiState = MutableStateFlow(LogInteractionUiState())
     val uiState: StateFlow<LogInteractionUiState> = _uiState.asStateFlow()
@@ -101,6 +123,8 @@ class CallLogViewModel @Inject constructor(
             val tasksOn = tasksPref.enabled.first()
             val tagSets = callLogDao.getAllTagSets()
             val allTags = tagSets.flatMap { parseTags(it) }.distinct().sorted()
+            val simLabels = displayPrefs.preferences.first().simLabels.values
+                .filter { it.isNotBlank() }.distinct().sorted()
 
             if (contactId < 0) {
                 // Unknown number -- no contact, show past logs for this number for context
@@ -115,10 +139,12 @@ class CallLogViewModel @Inject constructor(
                         phoneNumber          = prefillPhone,
                         pastLogsForNumber    = pastLogs,
                         tasksEnabled         = tasksOn,
-                        tasksInstalled       = TasksOrgHelper.isInstalled(context),
+                        tasksInstalled       = KotoHelper.isInstalled(context),
                         interactionType      = prefillType,
                         availableTags        = allTags,
                         interactionTimestamp = if (prefillTimestamp > 0L) prefillTimestamp else System.currentTimeMillis(),
+                        simLabel             = prefillSimLabel,
+                        availableSimLabels   = simLabels,
                     )
                 }
             } else {
@@ -127,11 +153,31 @@ class CallLogViewModel @Inject constructor(
                     it.copy(
                         contact              = contact,
                         tasksEnabled         = tasksOn,
-                        tasksInstalled       = TasksOrgHelper.isInstalled(context),
+                        tasksInstalled       = KotoHelper.isInstalled(context),
                         interactionType      = prefillType,
+                        // Reason is a chip picker; a calendar event title doesn't fit the chip
+                        // set, so we seed it into Notes as a context line instead and let the
+                        // user pick a chip reason.
+                        notes                = if (prefillReason.isNotBlank()) prefillReason else "",
                         availableTags        = allTags,
                         interactionTimestamp = if (prefillTimestamp > 0L) prefillTimestamp else System.currentTimeMillis(),
+                        simLabel             = prefillSimLabel,
+                        availableSimLabels   = simLabels,
                     )
+                }
+                // Resolve any extra prefill participants (calendar-nudge path) and add them.
+                if (prefillParticipantIds.isNotEmpty()) {
+                    val extras = prefillParticipantIds
+                        .mapNotNull { id -> contactDao.getContactById(id) }
+                        .filter { it.id != contact?.id }
+                    if (extras.isNotEmpty()) {
+                        _uiState.update { state ->
+                            state.copy(
+                                participants      = state.participants + extras.map { c -> InteractionParticipant(uid = c.cardavUid, name = c.displayName) },
+                                participantPhotos = state.participantPhotos + extras.associate { c -> c.cardavUid to c.photoUri },
+                            )
+                        }
+                    }
                 }
                 // Fetch social platforms from vCard
                 if (contact != null && contact.cardavUid.isNotBlank()) {
@@ -151,6 +197,14 @@ class CallLogViewModel @Inject constructor(
                         }
                     }
                 }
+                // Items already linked to this contact (Tavla/Koto/Nóta) that this interaction
+                // could be about -- see ContactDetailViewModel.linkedItems for the same fetch.
+                if (contact != null && contact.cardavUid.isNotBlank()) {
+                    val linked = runCatching { contactLinksRepository.linkedItemsFor(contact.cardavUid) }.getOrDefault(emptyList())
+                    if (linked.isNotEmpty()) {
+                        _uiState.update { it.copy(availableLinkedItems = linked) }
+                    }
+                }
             }
         }
     }
@@ -161,6 +215,17 @@ class CallLogViewModel @Inject constructor(
             val arr = JSONArray(json)
             (0 until arr.length()).map { arr.getString(it) }
         } catch (e: Exception) { emptyList() }
+    }
+
+    fun applyTemplate(template: com.brbrs.vinci.util.InteractionTemplate) {
+        _uiState.update {
+            it.copy(
+                interactionType = template.interactionType,
+                reason          = template.reason,
+                followUpEnabled = template.followUpDays > 0,
+                followUpDays    = if (template.followUpDays > 0) template.followUpDays else it.followUpDays,
+            )
+        }
     }
 
     fun onInteractionTypeSelected(type: String) {
@@ -174,6 +239,7 @@ class CallLogViewModel @Inject constructor(
     fun onFollowUpDaysChanged(days: Int)        { _uiState.update { it.copy(followUpDays = days) } }
     fun onTimestampChanged(ts: Long)            { _uiState.update { it.copy(interactionTimestamp = ts) } }
     fun onContactNameInputChanged(name: String) { _uiState.update { it.copy(contactNameInput = name) } }
+    fun onSimLabelSelected(label: String)       { _uiState.update { it.copy(simLabel = if (it.simLabel == label) "" else label) } }
 
     // -- Participants (extra people in this interaction, e.g. group calls) --------------
 
@@ -222,6 +288,20 @@ class CallLogViewModel @Inject constructor(
         _uiState.update { it.copy(participants = it.participants - participant) }
     }
 
+    /** Toggles whether this interaction is linked to [item] (a card/task/note already linked
+     *  to the contact -- see [LogInteractionUiState.availableLinkedItems]). */
+    fun toggleLinkedItem(item: LinkedItem) {
+        _uiState.update {
+            val isSelected = it.selectedLinkedItems.any { s -> s.source == item.source && s.itemId == item.itemId }
+            it.copy(
+                selectedLinkedItems = if (isSelected)
+                    it.selectedLinkedItems.filterNot { s -> s.source == item.source && s.itemId == item.itemId }
+                else
+                    it.selectedLinkedItems + item,
+            )
+        }
+    }
+
     /** Toggles a tag on/off. New tags (not in availableTags) are added to the available list. */
     fun toggleTag(tag: String) {
         val trimmed = tag.trim()
@@ -241,6 +321,9 @@ class CallLogViewModel @Inject constructor(
 
             val tagsJson = JSONArray(state.selectedTags).toString()
             val contact  = state.contact
+            val linkedItemsJson = serializeInteractionLinkedItems(
+                state.selectedLinkedItems.map { InteractionLinkedItemRef(it.source, it.itemId) }
+            )
 
             val log = if (contact != null) {
                 CallLogEntity(
@@ -260,6 +343,8 @@ class CallLogViewModel @Inject constructor(
                     tags            = tagsJson,
                     participants    = serializeParticipants(state.participants),
                     followUpDays    = if (state.followUpEnabled) state.followUpDays else 0,
+                    simLabel        = state.simLabel,
+                    linkedExternalItems = linkedItemsJson,
                     isSynced        = false,
                 )
             } else {
@@ -281,6 +366,7 @@ class CallLogViewModel @Inject constructor(
                     tags            = tagsJson,
                     participants    = serializeParticipants(state.participants),
                     followUpDays    = 0,
+                    simLabel        = state.simLabel,
                     isSynced        = false,
                 )
             }
@@ -308,7 +394,7 @@ class CallLogViewModel @Inject constructor(
                     if (state.tasksEnabled && state.tasksInstalled) {
                         val taskTitle = "Follow up with ${contact.displayName}"
                         val taskNotes = "Re: ${log.reason}\n\n${log.notes}".trim()
-                        TasksOrgHelper.createTask(context, taskTitle, taskNotes)
+                        KotoHelper.createTask(context, taskTitle, taskNotes)
                     }
                 }
             }

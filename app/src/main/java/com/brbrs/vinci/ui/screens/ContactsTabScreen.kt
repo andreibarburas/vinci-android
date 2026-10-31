@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +31,7 @@ import com.brbrs.vinci.ui.theme.*
 import com.brbrs.vinci.ui.viewmodels.ContactsTabViewModel
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactsTabScreen(
     onContactClick: (Long) -> Unit,
@@ -39,7 +41,9 @@ fun ContactsTabScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isDark = LocalIsDark.current
+    val isOled = LocalIsOled.current
     val listState: LazyListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -47,7 +51,9 @@ fun ContactsTabScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark)
+                if (isOled)
+                    Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                else if (isDark)
                     Brush.verticalGradient(0f to NavyDeep, 0.4f to NavyMid, 1f to NavyDeep)
                 else
                     Brush.verticalGradient(0f to LightBg, 0.4f to Color(0xFFEDE6F8), 1f to LightSurface2)
@@ -87,7 +93,7 @@ fun ContactsTabScreen(
                         TopBarIcon(Icons.Outlined.Close, "Cancel selection", active = false, isDark = isDark) { viewModel.exitSelectionMode() }
                     }
                 } else {
-                    Text("Contacts", style = MaterialTheme.typography.headlineMedium,
+                    Text("People", style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.onBackground)
                     TopBarIcon(
                         if (uiState.isGridView) Icons.Outlined.ViewList else Icons.Outlined.GridView,
@@ -176,6 +182,11 @@ fun ContactsTabScreen(
             }
 
             // -- Content --
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh    = viewModel::refresh,
+                modifier     = Modifier.fillMaxSize(),
+            ) {
             Box(modifier = Modifier.fillMaxSize()) {
 
                 if (uiState.searchQuery.isNotBlank()) {
@@ -214,7 +225,7 @@ fun ContactsTabScreen(
                     ) {
                         uiState.groups.forEach { (letter, contacts) ->
                             item(key = "gheader_$letter") {
-                                SectionHeader(text = letter, badge = contacts.size, color = CyanPrimary)
+                                AlphabetSectionHeader(letter = letter, count = contacts.size)
                             }
                             items(contacts.chunked(3), key = { row -> "g_" + row.joinToString("_") { it.id.toString() } }) { row ->
                                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -263,7 +274,7 @@ fun ContactsTabScreen(
                     ) {
                         uiState.groups.forEach { (letter, contacts) ->
                             item(key = "header_$letter") {
-                                SectionHeader(text = letter, badge = contacts.size, color = CyanPrimary)
+                                AlphabetSectionHeader(letter = letter, count = contacts.size)
                             }
                             items(contacts, key = { it.id }) { contact ->
                                 ContactListCard(contact = contact, isDark = isDark, accentColor = null, tag = null,
@@ -295,26 +306,28 @@ fun ContactsTabScreen(
                     }
                 }
             }
+            }
         }
 
-        // FAB -- add new contact
-        FloatingActionButton(
+        // FAB -- add new contact (2.0.0-beta01: extended/expressive, was a plain 56dp circular FAB)
+        ExtendedFloatingActionButton(
             onClick = onAddContact,
+            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+            text = { Text("New contact") },
             containerColor = CyanPrimary,
             contentColor = Color.White,
+            shape = ExpressiveFabShape,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 20.dp, bottom = 96.dp),
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = "New contact")
-        }
+        )
     }
 }
 
 // -- A-Z sidebar --
 
 @Composable
-private fun AlphabetSidebar(
+internal fun AlphabetSidebar(
     letters: List<String>,
     isDark: Boolean,
     modifier: Modifier = Modifier,

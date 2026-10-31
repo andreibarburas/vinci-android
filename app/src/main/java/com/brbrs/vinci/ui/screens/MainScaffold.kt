@@ -7,9 +7,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.outlined.EventNote
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,7 +26,8 @@ import com.brbrs.vinci.ui.theme.LightSurface
 private enum class MainTab(val label: String) {
     Home("Home"),
     Interactions("Interactions"),
-    Contacts("Contacts"),
+    Contacts("People"),
+    Companies("Companies"),
 }
 
 @Composable
@@ -34,6 +37,8 @@ fun MainScaffold(
     onEditInteraction: (Long) -> Unit,
     onSettings: () -> Unit,
     onAddContact: () -> Unit,
+    onSearch: () -> Unit = {},
+    onOpenCompany: (String) -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(MainTab.Home) }
     val isDark = LocalIsDark.current
@@ -46,6 +51,7 @@ fun MainScaffold(
                 onLogCall         = onLogCall,
                 onEditInteraction = onEditInteraction,
                 onSettings        = onSettings,
+                onSearch          = onSearch,
             )
             MainTab.Interactions -> InteractionsScreen(
                 onEditInteraction = onEditInteraction,
@@ -54,6 +60,9 @@ fun MainScaffold(
                 onContactClick = onContactClick,
                 onLogCall      = onLogCall,
                 onAddContact   = onAddContact,
+            )
+            MainTab.Companies -> CompaniesTabScreen(
+                onOpenCompany = onOpenCompany,
             )
         }
 
@@ -93,10 +102,22 @@ fun MainScaffold(
                 icon = {
                     Icon(
                         if (selectedTab == MainTab.Contacts) Icons.Filled.Person else Icons.Outlined.Person,
-                        contentDescription = "Contacts",
+                        contentDescription = "People",
                     )
                 },
-                label = { Text("Contacts") },
+                label = { Text("People") },
+                colors = navColors(),
+            )
+            NavigationBarItem(
+                selected = selectedTab == MainTab.Companies,
+                onClick  = { selectedTab = MainTab.Companies },
+                icon = {
+                    Icon(
+                        if (selectedTab == MainTab.Companies) Icons.Filled.Business else Icons.Outlined.Business,
+                        contentDescription = "Companies",
+                    )
+                },
+                label = { Text("Companies") },
                 colors = navColors(),
             )
         }

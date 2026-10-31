@@ -6,11 +6,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.brbrs.vinci.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
@@ -30,7 +34,12 @@ data class PermissionsUiState(
 @HiltViewModel
 class PermissionsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
+
+    /** "local" | "nextcloud" | null (loading) */
+    val storageMode: StateFlow<String?> = authRepository.storageMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _uiState = MutableStateFlow(PermissionsUiState())
     val uiState: StateFlow<PermissionsUiState> = _uiState.asStateFlow()
@@ -52,7 +61,7 @@ class PermissionsViewModel @Inject constructor(
                 PermissionItem(
                     permission  = Manifest.permission.WRITE_CONTACTS,
                     title       = "Edit contacts",
-                    rationale   = "Required to edit contact details directly from Vinci. Changes sync back to Nextcloud via DAVx5.",
+                    rationale   = "Required to edit contact details directly from Vinci.",
                     isEssential = true,
                     isGranted   = isGranted(Manifest.permission.WRITE_CONTACTS),
                 )

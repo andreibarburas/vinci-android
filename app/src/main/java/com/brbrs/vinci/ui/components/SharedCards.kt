@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -27,6 +28,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.brbrs.vinci.data.CallLogEntity
 import com.brbrs.vinci.data.ContactEntity
@@ -83,6 +85,29 @@ fun SectionHeader(text: String, badge: Int?, color: Color) {
     }
 }
 
+// ── Editorial alphabet section header (big serif letter, magazine feel) ────────
+
+@Composable
+fun AlphabetSectionHeader(letter: String, count: Int) {
+    Row(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp).padding(top = 10.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            letter,
+            style = MaterialTheme.typography.headlineLarge, // DM Serif Display when the custom font pairing is on
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+    }
+}
+
 // ── Show more button ──────────────────────────────────────────────────────────
 
 @Composable
@@ -121,62 +146,89 @@ fun StarredGridCell(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    val shape = RoundedCornerShape(18.dp)
+    Box(
         modifier = modifier
             .then(
                 if (isDark)
                     Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(PurpleGlow, Color.Transparent)
-                            )
-                        )
-                        .border(1.dp, CyanPrimary.copy(alpha = 0.20f), RoundedCornerShape(18.dp))
+                        .clip(shape)
+                        .border(1.dp, CyanPrimary.copy(alpha = 0.20f), shape)
                 else
                     Modifier
-                        .shadow(5.dp, RoundedCornerShape(18.dp),
-                            ambientColor = Color(0x3A9C27B0), spotColor = Color(0x1E9C27B0))
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(LightSurface2)
-                        .border(1.5.dp, PurpleLight.copy(alpha = 0.32f), RoundedCornerShape(18.dp))
+                        .shadow(5.dp, shape, ambientColor = Color(0x3A9C27B0), spotColor = Color(0x1E9C27B0))
+                        .clip(shape)
+                        .border(1.5.dp, PurpleLight.copy(alpha = 0.32f), shape)
             )
-            .clickable(onClick = onClick)
-            .padding(vertical = 14.dp, horizontal = 6.dp),
+            .clickable(onClick = onClick),
     ) {
-        Box(contentAlignment = Alignment.BottomEnd) {
-            ContactAvatar(photoUri = contact.photoUri, displayName = contact.displayName,
-                size = 50, shape = CircleShape)
+        // Backdrop -- the contact's own photo, heavily blurred and scrimmed, the same frosted
+        // treatment as their detail page hero; falls back to the old flat tint when they have
+        // no photo at all.
+        if (contact.photoUri.isNotBlank()) {
+            AsyncImage(
+                model = Uri.parse(contact.photoUri),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .blur(30.dp),
+            )
             Box(
                 modifier = Modifier
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .background(if (isDark) NavyMid else LightSurface)
-                    .border(1.dp, AmberWarn.copy(alpha = 0.7f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Star, null, tint = AmberWarn, modifier = Modifier.size(9.dp))
-            }
+                    .matchParentSize()
+                    .background((if (isDark) NavyMid else LightSurface2).copy(alpha = if (isDark) 0.62f else 0.68f)),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        if (isDark) Brush.verticalGradient(listOf(PurpleGlow, Color.Transparent))
+                        else Brush.verticalGradient(listOf(LightSurface2, LightSurface2))
+                    ),
+            )
         }
-        Spacer(Modifier.height(7.dp))
-        Text(
-            contact.displayName,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-        if (contact.organization.isNotBlank()) {
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 6.dp),
+        ) {
+            Box(contentAlignment = Alignment.BottomEnd) {
+                ContactAvatar(photoUri = contact.photoUri, displayName = contact.displayName,
+                    size = 50, shape = CircleShape)
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(if (isDark) NavyMid else LightSurface)
+                        .border(1.dp, AmberWarn.copy(alpha = 0.7f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Star, null, tint = AmberWarn, modifier = Modifier.size(9.dp))
+                }
+            }
+            Spacer(Modifier.height(7.dp))
             Text(
-                contact.organization,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                contact.displayName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
             )
+            if (contact.organization.isNotBlank()) {
+                Text(
+                    contact.organization,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -203,23 +255,23 @@ fun ContactListCard(
             .then(
                 if (isDark)
                     Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.055f))
+                        .clip(ExpressiveCardShape)
+                        .background(Color.White.copy(alpha = 0.065f))
                         .border(
                             1.dp,
-                            if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.09f),
-                            RoundedCornerShape(16.dp),
+                            if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.11f),
+                            ExpressiveCardShape,
                         )
                 else
                     Modifier
-                        .shadow(2.dp, RoundedCornerShape(16.dp),
+                        .shadow(2.dp, ExpressiveCardShape,
                             ambientColor = Color(0x289C27B0), spotColor = Color(0x149C27B0))
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(ExpressiveCardShape)
                         .background(LightSurface)
                         .border(
                             if (selected) 1.5.dp else 1.dp,
                             if (selected) MaterialTheme.colorScheme.primary else LightBorderMed,
-                            RoundedCornerShape(16.dp),
+                            ExpressiveCardShape,
                         )
             )
             .combinedClickable(
@@ -239,7 +291,7 @@ fun ContactListCard(
                 Spacer(Modifier.width(10.dp))
             }
             ContactAvatar(photoUri = contact.photoUri, displayName = contact.displayName,
-                size = 42, shape = RoundedCornerShape(12.dp))
+                size = 46, shape = ExpressiveAvatarShape, sharedElementKey = "avatar-${contact.id}")
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(contact.displayName,
@@ -261,15 +313,23 @@ fun ContactListCard(
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (tag != null && accentColor != null) {
+                // Explicit tag/accentColor (when a caller supplies one) wins; otherwise, for
+                // 2.0.0-beta01, fall back to the contact's organization as a lightweight tag,
+                // colored from ExpressiveTagPalette so secondary/tertiary roles get used
+                // instead of every badge in the app defaulting to primary.
+                val displayTag = tag ?: contact.organization.takeIf { it.isNotBlank() }
+                val displayColor = accentColor
+                    ?: displayTag?.let { ExpressiveTagPalette[Math.floorMod(it.hashCode(), ExpressiveTagPalette.size)] }
+                if (displayTag != null && displayColor != null) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50.dp))
-                            .background(accentColor.copy(alpha = 0.15f))
-                            .border(1.dp, accentColor.copy(alpha = 0.3f), RoundedCornerShape(50.dp))
+                            .background(displayColor.copy(alpha = 0.16f))
+                            .border(1.dp, displayColor.copy(alpha = 0.32f), RoundedCornerShape(50.dp))
                             .padding(horizontal = 9.dp, vertical = 3.dp),
                     ) {
-                        Text(tag, style = MaterialTheme.typography.labelSmall, color = accentColor)
+                        Text(displayTag, style = MaterialTheme.typography.labelSmall, color = displayColor,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 IconButton(onClick = onLogCall, modifier = Modifier.size(30.dp)) {
@@ -297,22 +357,22 @@ fun ContactGridCell(
             .then(
                 if (isDark)
                     Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.055f))
-                        .border(1.dp, Color.White.copy(alpha = 0.09f), RoundedCornerShape(16.dp))
+                        .clip(ExpressiveCardShape)
+                        .background(Color.White.copy(alpha = 0.065f))
+                        .border(1.dp, Color.White.copy(alpha = 0.11f), ExpressiveCardShape)
                 else
                     Modifier
-                        .shadow(2.dp, RoundedCornerShape(16.dp),
+                        .shadow(2.dp, ExpressiveCardShape,
                             ambientColor = Color(0x229C27B0), spotColor = Color(0x0E9C27B0))
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(ExpressiveCardShape)
                         .background(LightSurface)
-                        .border(1.dp, LightBorderMed, RoundedCornerShape(16.dp))
+                        .border(1.dp, LightBorderMed, ExpressiveCardShape)
             )
             .clickable(onClick = onClick)
             .padding(vertical = 16.dp, horizontal = 8.dp),
     ) {
         ContactAvatar(photoUri = contact.photoUri, displayName = contact.displayName,
-            size = 56, shape = CircleShape)
+            size = 56, shape = ExpressiveAvatarShape)
         Spacer(Modifier.height(8.dp))
         Text(contact.displayName, style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface, maxLines = 2,
@@ -351,7 +411,9 @@ fun RecentInteractionCard(
         com.brbrs.vinci.ui.components.SOCIAL_PLATFORMS.firstOrNull { it.key == key && it.drawableRes != 0 }
     } else null
 
-    val participantCount = parseParticipants(log.participants).size
+    val participants = parseParticipants(log.participants)
+    val participantCount = participants.size
+    val typeColor = interactionTypeColor(log.interactionType)
 
     Box(
         modifier = Modifier
@@ -379,14 +441,14 @@ fun RecentInteractionCard(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(CyanPrimary.copy(alpha = if (isDark) 0.15f else 0.10f)),
+                    .background(typeColor.copy(alpha = if (isDark) 0.15f else 0.10f)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (socialPlatform != null) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(id = socialPlatform.drawableRes),
                         contentDescription = socialPlatform.label,
-                        tint = CyanPrimary,
+                        tint = typeColor,
                         modifier = Modifier.size(18.dp),
                     )
                 } else {
@@ -397,23 +459,42 @@ fun RecentInteractionCard(
                         log.interactionType == "Message" -> Icons.Outlined.Message
                         else      -> Icons.Outlined.Call
                     }
-                    Icon(typeIcon, null, tint = CyanPrimary, modifier = Modifier.size(18.dp))
+                    Icon(typeIcon, null, tint = typeColor, modifier = Modifier.size(18.dp))
                 }
-                if (participantCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .size(15.dp)
-                            .clip(CircleShape)
-                            .background(AmberWarn)
-                            .border(1.dp, if (isDark) NavyMid else LightSurface, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "+$participantCount",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = androidx.compose.ui.unit.TextUnit(8f, androidx.compose.ui.unit.TextUnitType.Sp)),
-                            color = NavyDeep,
-                        )
+            }
+            if (participantCount > 0) {
+                Spacer(Modifier.width(2.dp))
+                // Stacked mini avatars for the extra participants, replacing the old "+N" text
+                // badge -- shows up to 3 overlapping circles, then a "+N" overflow bubble.
+                Row {
+                    participants.take(3).forEachIndexed { i, p ->
+                        Box(
+                            modifier = Modifier
+                                .offset(x = (-6 * i).dp)
+                                .zIndex((10 - i).toFloat()),
+                        ) {
+                            ContactAvatar(
+                                photoUri = "", displayName = p.name, size = 20, shape = CircleShape,
+                                modifier = Modifier.border(1.5.dp, if (isDark) NavyMid else LightSurface, CircleShape),
+                            )
+                        }
+                    }
+                    if (participantCount > 3) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = (-6 * 3).dp)
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(AmberWarn)
+                                .border(1.5.dp, if (isDark) NavyMid else LightSurface, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "+${participantCount - 3}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = androidx.compose.ui.unit.TextUnit(8f, androidx.compose.ui.unit.TextUnitType.Sp)),
+                                color = NavyDeep,
+                            )
+                        }
                     }
                 }
             }
@@ -451,6 +532,7 @@ fun RecentInteractionCard(
 
 // ── Shared avatar ─────────────────────────────────────────────────────────────
 
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 fun ContactAvatar(
     photoUri: String,
@@ -458,20 +540,37 @@ fun ContactAvatar(
     size: Int,
     shape: androidx.compose.ui.graphics.Shape,
     modifier: Modifier = Modifier,
+    sharedElementKey: String? = null,
 ) {
+    // Lets the same avatar morph from a list card into the contact detail header instead of
+    // just cutting between screens. Only applies when both the shared-transition scope and
+    // this screen's AnimatedContentScope are available (provided by VinciNavGraph for the
+    // contacts-list <-> contact-detail routes) and a key was actually supplied -- every other
+    // caller of ContactAvatar is unaffected.
+    val sharedScope = com.brbrs.vinci.ui.LocalSharedTransitionScope.current
+    val animatedScope = com.brbrs.vinci.ui.LocalNavAnimatedVisibilityScope.current
+    val sharedModifier = if (sharedElementKey != null && sharedScope != null && animatedScope != null) {
+        with(sharedScope) {
+            modifier.sharedElement(
+                rememberSharedContentState(key = sharedElementKey),
+                animatedVisibilityScope = animatedScope,
+            )
+        }
+    } else modifier
+
     val initials = displayName.split(" ")
         .take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("")
     if (photoUri.isNotBlank()) {
         AsyncImage(
             model = Uri.parse(photoUri), contentDescription = displayName,
             contentScale = ContentScale.Crop,
-            modifier = modifier.size(size.dp).clip(shape),
+            modifier = sharedModifier.size(size.dp).clip(shape),
             error    = painterResource(id = android.R.drawable.ic_menu_gallery),
             fallback = painterResource(id = android.R.drawable.ic_menu_gallery),
         )
     } else {
         Box(
-            modifier = modifier
+            modifier = sharedModifier
                 .size(size.dp)
                 .clip(shape)
                 .background(
@@ -550,6 +649,71 @@ fun UnknownCallCard(
                 Icon(Icons.Outlined.EditNote, "Log interaction",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier.size(17.dp))
+            }
+        }
+    }
+}
+
+// ── Timeline node (alternative to stacked CallLogEntry cards) ──────────────────
+
+fun sameMonth(a: Long, b: Long): Boolean {
+    val ca = Calendar.getInstance().apply { timeInMillis = a }
+    val cb = Calendar.getInstance().apply { timeInMillis = b }
+    return ca.get(Calendar.YEAR) == cb.get(Calendar.YEAR) && ca.get(Calendar.MONTH) == cb.get(Calendar.MONTH)
+}
+
+@Composable
+fun TimelineMonthDivider(timestamp: Long) {
+    Text(
+        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(timestamp)),
+        style = MaterialTheme.typography.headlineSmall, // DM Serif Display when the custom font pairing is on
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+fun TimelineNode(
+    log: CallLogEntity,
+    isDark: Boolean,
+    isLast: Boolean,
+    onClick: () -> Unit,
+) {
+    val typeColor = interactionTypeColor(log.interactionType)
+    Row(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(24.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(typeColor)
+                    .border(2.dp, if (isDark) NavyDeep else LightBg, CircleShape),
+            )
+            if (!isLast) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .weight(1f)
+                        .background(typeColor.copy(alpha = 0.25f)),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier
+            .weight(1f)
+            .clickable(onClick = onClick)
+            .padding(bottom = 18.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(log.interactionType, style = MaterialTheme.typography.titleSmall, color = typeColor)
+                Text(relativeTime(log.callTimestamp), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (log.reason.isNotBlank()) {
+                Text(log.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (log.notes.isNotBlank()) {
+                Text(log.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }

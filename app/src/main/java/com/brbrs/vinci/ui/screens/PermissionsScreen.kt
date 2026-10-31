@@ -33,7 +33,9 @@ fun PermissionsScreen(
     onAllGranted: () -> Unit,
     viewModel: PermissionsViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState     by viewModel.uiState.collectAsState()
+    val storageMode by viewModel.storageMode.collectAsState()
+    val isLocal = storageMode == "local"
     val context  = LocalContext.current
     val isDark   = LocalIsDark.current
 
@@ -88,11 +90,24 @@ fun PermissionsScreen(
             Spacer(Modifier.height(8.dp))
 
             Text(
-                "Vinci needs access to your contacts and call log to work. Your data stays on your device and your Nextcloud — never anywhere else.",
+                if (isLocal)
+                    "Vinci needs access to your contacts and call log to work. Your data stays on this device — nothing leaves it."
+                else
+                    "Vinci needs access to your contacts and call log to work. Your data stays on your device and your Nextcloud — never anywhere else.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+
+            if (!isLocal) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "⚠ Make sure DAVx5 (or another CardDAV client) has synced your Nextcloud contacts to this device before continuing, otherwise your contact list will appear empty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
 
             Spacer(Modifier.height(32.dp))
 
