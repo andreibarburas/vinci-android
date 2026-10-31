@@ -32,20 +32,20 @@ Vinci is a free, open-source, privacy-first personal CRM for Android. Your conta
 
 ## Features
 
-- **Interaction logging** — Log calls, meetings, emails, messages, and social media interactions with type, reason, notes, outcome, and tags
-- **Starred contacts** — Pin your most important people for quick access from the home screen
-- **Follow-up reminders** — Set a follow-up reminder when logging an interaction; syncs to Tasks.org via CalDAV
-- **Birthday reminders** — See upcoming birthdays on the home screen
-- **Contact detail** — View all contact info (phone, email, address, birthday, notes, social links) alongside your full interaction history
-- **Tag filtering** — Filter contacts by tag on the Contacts tab
-- **Bulk actions** — Star or unstar multiple contacts via long-press selection
-- **Markdown export** — Export a contact's full interaction history as a Markdown file
-- **File attachments** — Attach files to contacts; stored on Nextcloud WebDAV
-- **WhatsApp & Signal deep links** — Start a WhatsApp or Signal conversation directly from the contact detail screen
-- **Text size** — Small / Default / Large / Extra Large, applied throughout the app
-- **Biometric lock** — Require fingerprint or face unlock when opening Vinci
-- **Dark mode** — Full dark theme support
-- **Nextcloud sync** — All data syncs to your own Nextcloud via WebDAV; contacts read from DAVx5
+- **Interaction logging** — Calls, meetings, emails, messages, and social media; log with multiple contacts at once for group calls and meetings
+- **Pre-call briefing** — See your last few interactions with a contact before you dial
+- **Timeline view** — Vertical timeline with month dividers; toggle between it and the original stacked-card view
+- **Company pages** — Automatically created for every organisation in your contacts; see all employees, add an RSS/Atom feed, sync notes to Nextcloud
+- **Relationship sparkline** — A 12-week activity chart showing interaction frequency at a glance
+- **Caller preview** — Richer notification with your last 2–3 interactions, or a full-screen card over the ringing screen
+- **Calendar nudges** — Prompt to log a meeting when attendees match your Vinci contacts
+- **Birthday reminders** — Upcoming birthdays on the home screen
+- **File & sketch attachments** — Attach files or hand-drawn sketches to an interaction; stored on Nextcloud WebDAV
+- **Export** — Interaction history as Markdown or full PDF; full backup as a ZIP file
+- **Duplicate / merge assistant** — Spots probable duplicates and merges interaction history in a tap
+- **Nextcloud sync** — Native contact sync, no DAVx5 needed; mirrors contacts into Android with live progress; DAVx5 still supported
+- **Local-only mode** — Use Vinci without a Nextcloud server; switch modes anytime from Settings
+- **Backup & restore** — Export and restore your full history as a ZIP; unmatched contacts are flagged for review, not lost
 
 ---
 
