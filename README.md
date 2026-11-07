@@ -7,7 +7,7 @@
 ![GitHub Issues](https://img.shields.io/github/issues/andreibarburas/vinci-android?link=https://github.com/andreibarburas/vinci-android/issues)
 
 [![Get it on Google Play](https://img.shields.io/badge/Google%20Play-Download-brightgreen?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.brbrs.vinci)
-[![F-Droid](https://img.shields.io/badge/F--Droid-coming%20soon-blue?logo=f-droid)](https://f-droid.org)
+[![F-Droid](https://img.shields.io/badge/F--Droid-self--hosted%20repo-blue?logo=f-droid)](https://android.barburas.com/repo)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-purple.svg)](LICENSE)
 
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/andreibarburas?link=https://github.com/sponsors/andreibarburas)
@@ -103,6 +103,7 @@ If my work saves you time, a small tip means a lot:
 ## Links
 
 - [Play Store](https://play.google.com/store/apps/dev?id=6842866278906089090) [![Google Play Store](https://img.shields.io/badge/Google_Play-414141?logo=google-play&logoColor=white)](https://play.google.com/store/apps/dev?id=6842866278906089090)
+- [F-Droid Self-Hosted Repo](https://android.barburas.com/repo) [![F-Droid](https://img.shields.io/badge/F--Droid-self--hosted%20repo-blue?logo=f-droid)](https://android.barburas.com/repo)
 - [r/BarburasLab](https://reddit.com/r/barburaslab) ![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/BarburasLab?style=flat&logo=reddit&link=https://reddit.com/barburaslab)
 - [Privacy Policy](https://barburas.com/privacy-policy/) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-purple.svg)](LICENSE)
 
